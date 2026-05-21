@@ -1,0 +1,27 @@
+# build + deps
+.next
+node_modules
+out
+dist
+coverage
+
+# env
+.env
+.env.local
+.env.*.local
+
+# logs
+*.log
+logs
+
+# OS
+.DS_Store
+
+# editor
+.vscode
+
+# drizzle scratch
+drizzle/meta/_journal.json.tmp
+
+# generated harbor scratch
+.harbor-out

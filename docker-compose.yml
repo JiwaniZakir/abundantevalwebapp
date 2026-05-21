@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: abundant-harbor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: abundant_harbor
+      POSTGRES_USER: abundant
+      POSTGRES_PASSWORD: abundant
+    ports:
+      - "5432:5432"
+    volumes:
+      - abundant-harbor-postgres:/var/lib/postgresql/data
+
+volumes:
+  abundant-harbor-postgres:
