@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { useFocusTrap } from "@/lib/hooks/use-focus-trap";
 import {
   ChevronDown,
   ChevronRight,
@@ -134,6 +135,17 @@ function DrawerContents() {
   const recent = useWorkbench((s) => s.recentArtifacts);
   const openArtifact = useWorkbench((s) => s.openArtifact);
   const [query, setQuery] = useState("");
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [setOpen]);
 
   const paths = useMemo(
     () => Object.keys(workspace.artifacts).sort((a, b) => a.localeCompare(b)),
@@ -160,6 +172,10 @@ function DrawerContents() {
     >
       <motion.div
         key="drawer"
+        ref={trapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Task pack browser"
         initial={{ x: -32, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         exit={{ x: -32, opacity: 0 }}

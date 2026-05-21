@@ -3,6 +3,7 @@
 import { ChevronDown, Command, GitBranch, Sparkles } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { useWorkbench } from "@/lib/workbench/store";
+import { ModelPicker } from "./model-picker";
 import { ModeToggle } from "./mode-toggle";
 import { SnapshotMenu } from "./snapshot-menu";
 
@@ -49,6 +50,7 @@ export function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
             orchestrator thinking
           </span>
         )}
+        <ModelPicker />
         <ModeToggle />
         <button
           type="button"

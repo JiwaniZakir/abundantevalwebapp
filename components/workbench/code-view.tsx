@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, Copy } from "lucide-react";
+import { AlertTriangle, Check, Copy } from "lucide-react";
 import { useState } from "react";
+import type { SpoilerFinding } from "@/lib/agent/types";
 import { cn } from "@/lib/utils";
 
 type Token = { text: string; className?: string };
@@ -119,17 +120,32 @@ function tokenizeLine(line: string, kind: string): Token[] {
   return [{ text: line }];
 }
 
+const severityColor: Record<SpoilerFinding["severity"], string> = {
+  high: "var(--status-red)",
+  medium: "var(--status-amber)",
+  low: "var(--status-blue)",
+};
+
 export function CodeView({
   content,
   kind,
   className,
+  findings = [],
 }: {
   content: string;
   kind: string;
   className?: string;
+  findings?: SpoilerFinding[];
 }) {
   const [copied, setCopied] = useState(false);
   const lines = content.split("\n");
+
+  const findingsByLine = new Map<number, SpoilerFinding[]>();
+  for (const finding of findings) {
+    const list = findingsByLine.get(finding.line) ?? [];
+    list.push(finding);
+    findingsByLine.set(finding.line, list);
+  }
 
   const onCopy = async () => {
     try {
@@ -165,19 +181,40 @@ export function CodeView({
       </button>
       <div className="grid min-h-full grid-cols-[56px_1fr]">
         <div className="select-none border-r border-[var(--hairline)] py-6 text-right text-[11px] text-[var(--ink-faded)]">
-          {lines.map((_, index) => (
-            <div key={index} className="pr-3">
-              {index + 1}
-            </div>
-          ))}
+          {lines.map((_, index) => {
+            const lineFindings = findingsByLine.get(index + 1);
+            return (
+              <div
+                key={index}
+                className="relative flex items-center justify-end gap-1.5 pr-3"
+              >
+                {lineFindings && lineFindings.length > 0 && (
+                  <span
+                    title={lineFindings
+                      .map((f) => `${f.severity}: ${f.message}`)
+                      .join("\n")}
+                    style={{ background: severityColor[lineFindings[0].severity] }}
+                    className="h-1.5 w-1.5 rounded-full"
+                  />
+                )}
+                <span>{index + 1}</span>
+              </div>
+            );
+          })}
         </div>
         <div className="py-6 pl-5 pr-6">
           {lines.map((line, lineIndex) => {
             const tokens = tokenizeLine(line, kind);
+            const lineFindings = findingsByLine.get(lineIndex + 1);
             return (
               <div
                 key={lineIndex}
-                className="group/line -mx-2 min-h-[1.7em] whitespace-pre rounded px-2 hover:bg-[var(--cream)]/60"
+                className={cn(
+                  "group/line relative -mx-2 min-h-[1.7em] whitespace-pre rounded px-2 hover:bg-[var(--cream)]/60",
+                  lineFindings &&
+                    lineFindings.length > 0 &&
+                    "bg-[var(--status-amber-soft)]/30",
+                )}
               >
                 {tokens.length === 0 ? (
                   <span>&nbsp;</span>
@@ -187,6 +224,15 @@ export function CodeView({
                       {token.text}
                     </span>
                   ))
+                )}
+                {lineFindings && lineFindings.length > 0 && (
+                  <span className="pointer-events-none absolute right-2 top-0 hidden items-center gap-1 rounded-md border border-[var(--hairline)] bg-[var(--paper-pure)] px-1.5 py-0.5 text-[10px] text-[var(--ink)] shadow-[var(--shadow-soft)] group-hover/line:inline-flex">
+                    <AlertTriangle
+                      className="h-2.5 w-2.5"
+                      style={{ color: severityColor[lineFindings[0].severity] }}
+                    />
+                    {lineFindings[0].message.slice(0, 80)}
+                  </span>
                 )}
               </div>
             );

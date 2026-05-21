@@ -62,6 +62,7 @@ export function FocusSurface() {
   const setFocus = useWorkbench((s) => s.setFocus);
   const setTaskPackOpen = useWorkbench((s) => s.setTaskPackOpen);
   const workspace = useWorkbench((s) => s.workspace);
+  const spoilerFindings = useWorkbench((s) => s.spoilerFindings);
 
   const breadcrumb = breadcrumbForFocus(focus);
   const isBriefing = focus.kind === "briefing";
@@ -127,6 +128,10 @@ export function FocusSurface() {
               <CodeView
                 content={workspace.artifacts[focus.path].content}
                 kind={workspace.artifacts[focus.path].kind}
+                findings={spoilerFindings.filter(
+                  (finding) =>
+                    focus.kind === "artifact" && finding.artifactPath === focus.path,
+                )}
               />
             )}
             {focus.kind === "result" && focus.result === "probe" && <ProbeResultCard />}

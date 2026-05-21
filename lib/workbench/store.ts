@@ -73,6 +73,7 @@ type WorkbenchState = {
   setPublishOpen: (open: boolean) => void;
   setMode: (mode: RuntimeMode) => void;
   setEnvStatus: (status: EnvStatus) => void;
+  setTargetModel: (modelSlug: string, runner?: string) => void;
   dismissNotice: (id: string) => void;
   applyIteration: (input: {
     diffPath: string;
@@ -83,6 +84,8 @@ type WorkbenchState = {
 
   sendInput: (input: string) => Promise<void>;
   stopStreaming: () => void;
+  regenerateLast: () => Promise<void>;
+  editLastUserMessage: (newContent: string) => Promise<void>;
   resetDemo: () => void;
 };
 
@@ -178,6 +181,29 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
       return {
         envStatus,
         mode: state.mode === "live" && !anyKey ? "demo" : state.mode,
+      };
+    });
+  },
+
+  setTargetModel(modelSlug, runner) {
+    set((state) => {
+      const hash = `rcfg_${Date.now().toString(36)}_${modelSlug.replace(/[^a-z0-9]/gi, "").slice(0, 12)}`;
+      return {
+        workspace: {
+          ...state.workspace,
+          targetModel: modelSlug,
+          runner: runner ?? state.workspace.runner,
+          runConfigHash: hash,
+        },
+        notices: [
+          ...state.notices,
+          {
+            id: `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            level: "info",
+            message: `Target model switched to ${modelSlug}. New RunConfig hash pinned.`,
+            createdAt: Date.now(),
+          },
+        ],
       };
     });
   },
@@ -382,6 +408,47 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
 
   stopStreaming() {
     activeStreamController?.abort();
+  },
+
+  async regenerateLast() {
+    const state = get();
+    if (state.isStreaming) return;
+
+    let lastUserIndex = -1;
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      if (state.messages[i].role === "user") {
+        lastUserIndex = i;
+        break;
+      }
+    }
+    if (lastUserIndex < 0) return;
+
+    const lastUser = state.messages[lastUserIndex];
+    set((s) => ({
+      messages: s.messages.slice(0, lastUserIndex),
+    }));
+    await get().sendInput(lastUser.content);
+  },
+
+  async editLastUserMessage(newContent) {
+    const state = get();
+    if (state.isStreaming) return;
+    const trimmed = newContent.trim();
+    if (!trimmed) return;
+
+    let lastUserIndex = -1;
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      if (state.messages[i].role === "user") {
+        lastUserIndex = i;
+        break;
+      }
+    }
+    if (lastUserIndex < 0) return;
+
+    set((s) => ({
+      messages: s.messages.slice(0, lastUserIndex),
+    }));
+    await get().sendInput(trimmed);
   },
 }));
 

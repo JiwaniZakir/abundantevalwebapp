@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { useFocusTrap } from "@/lib/hooks/use-focus-trap";
 import {
   CheckCircle2,
   ExternalLink,
@@ -39,6 +40,17 @@ export function PublishDialog() {
 function PublishDialogBody() {
   const setOpen = useWorkbench((s) => s.setPublishOpen);
   const workspace = useWorkbench((s) => s.workspace);
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [setOpen]);
 
   const defaultSlug = useMemo(() => {
     return workspace.projectName
@@ -201,6 +213,10 @@ function PublishDialogBody() {
     >
       <motion.div
         key="publish-card"
+        ref={trapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Publish Harbor task pack"
         initial={{ opacity: 0, y: 16, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 12, scale: 0.97 }}
