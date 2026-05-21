@@ -28,3 +28,4 @@ drizzle/meta/_journal.json.tmp
 
 # generated harbor scratch
 .harbor-out
+.vercel

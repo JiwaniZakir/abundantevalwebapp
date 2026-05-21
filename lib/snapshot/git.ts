@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { repoRoot } from "@/lib/server/cwd";
 
 export type SnapshotResult = {
   tag: string;
@@ -11,7 +12,7 @@ export type SnapshotResult = {
 function runGit(args: string[]): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const command = "git";
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: process.cwd(), env: process.env });
+    const child = spawn(command, args, { cwd: repoRoot(), env: process.env });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => {

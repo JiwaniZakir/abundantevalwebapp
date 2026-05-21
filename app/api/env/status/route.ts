@@ -26,29 +26,64 @@ function harborAuthStatus(): Promise<boolean> {
   });
 }
 
-export async function GET() {
+function envOnlyStatus() {
   const harborBinName = process.env.HARBOR_BIN ?? "harbor";
   const publishTarget = (process.env.PUBLISH_TARGET ?? "registry").trim() as
     | "registry"
     | "github"
     | "both";
 
-  const [harborBin, ghCli, harborAuth] = await Promise.all([
-    which(harborBinName),
-    which("gh"),
-    harborAuthStatus(),
-  ]);
-
-  return NextResponse.json({
+  return {
     anthropic: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
     openai: Boolean(process.env.OPENAI_API_KEY?.trim()),
     google: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim()),
-    harborBin,
+    harborBin: false,
     harborBinName,
-    harborAuth,
+    harborAuth: false,
     harborPublishOrg: process.env.HARBOR_PUBLISH_ORG?.trim() ?? null,
-    ghCli,
+    ghCli: false,
     publishOwner: process.env.HARBOR_PUBLISH_OWNER?.trim() ?? null,
     publishTarget,
-  });
+  };
+}
+
+export async function GET() {
+  try {
+    if (process.env.VERCEL) {
+      return NextResponse.json(envOnlyStatus());
+    }
+
+    const harborBinName = process.env.HARBOR_BIN ?? "harbor";
+    const publishTarget = (process.env.PUBLISH_TARGET ?? "registry").trim() as
+      | "registry"
+      | "github"
+      | "both";
+
+    const [harborBin, ghCli, harborAuth] = await Promise.all([
+      which(harborBinName),
+      which("gh"),
+      harborAuthStatus(),
+    ]);
+
+    return NextResponse.json({
+      anthropic: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+      openai: Boolean(process.env.OPENAI_API_KEY?.trim()),
+      google: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim()),
+      harborBin,
+      harborBinName,
+      harborAuth,
+      harborPublishOrg: process.env.HARBOR_PUBLISH_ORG?.trim() ?? null,
+      ghCli,
+      publishOwner: process.env.HARBOR_PUBLISH_OWNER?.trim() ?? null,
+      publishTarget,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ...envOnlyStatus(),
+        error: error instanceof Error ? error.message : "env status failed",
+      },
+      { status: 500 },
+    );
+  }
 }

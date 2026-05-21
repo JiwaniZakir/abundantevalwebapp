@@ -3,7 +3,7 @@ import { buildEmptyWorkspace } from "@/lib/agent/seed-workspace";
 import type { Artifact, WorkspaceState } from "@/lib/agent/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 type RequestBody = {
   slug?: string;

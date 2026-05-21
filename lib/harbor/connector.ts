@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { repoRoot } from "@/lib/server/cwd";
 import { materializeWorkspace } from "./materialize";
 import { runHarborTrial } from "./adapter";
 import { validateTaskPack } from "./validate-task";
@@ -60,7 +61,7 @@ function runCommand(
 async function ensureHarborAuth(): Promise<{ ok: boolean; detail: string }> {
   const harborBin = process.env.HARBOR_BIN ?? "harbor";
   try {
-    const result = await runCommand(harborBin, ["auth", "status"], process.cwd());
+    const result = await runCommand(harborBin, ["auth", "status"], repoRoot());
     if (result.code === 0) return { ok: true, detail: result.stdout.trim() };
     return { ok: false, detail: result.stderr.trim() || result.stdout.trim() };
   } catch (error) {
@@ -73,7 +74,7 @@ async function ensureHarborAuth(): Promise<{ ok: boolean; detail: string }> {
 
 async function ensureGhAuth(): Promise<{ ok: boolean; detail: string }> {
   try {
-    const result = await runCommand("gh", ["auth", "status"], process.cwd());
+    const result = await runCommand("gh", ["auth", "status"], repoRoot());
     if (result.code === 0) return { ok: true, detail: result.stdout.trim() };
     return { ok: false, detail: result.stderr.trim() || result.stdout.trim() };
   } catch (error) {
@@ -219,7 +220,7 @@ export async function* publishTaskPack(
       const taskUpdate = await runCommand(
         harborBin,
         ["task", "update", taskDir, "--org", org!, "--description", description, "--overwrite"],
-        process.cwd(),
+        repoRoot(),
       );
       if (taskUpdate.code !== 0) {
         yield {
@@ -241,7 +242,7 @@ export async function* publishTaskPack(
         taskDir,
         visibility === "public" ? "--public" : "--private",
       ];
-      const publishResult = await runCommand(harborBin, publishArgs, process.cwd());
+      const publishResult = await runCommand(harborBin, publishArgs, repoRoot());
       if (publishResult.code !== 0) {
         yield {
           kind: "error",

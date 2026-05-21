@@ -18,7 +18,7 @@ import type {
 } from "@/lib/agent/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 type RequestBody = {
   input?: string;

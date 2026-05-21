@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getLatestSession, listSessions, upsertSession } from "@/lib/db/sessions";
-import type { WorkbenchSnapshot } from "@/lib/workbench/store";
+import type { WorkbenchSnapshot } from "@/lib/workbench/types";
 
 export const runtime = "nodejs";
 

@@ -30,16 +30,28 @@ export function LiveSetupBanner() {
   if (dismissed || llmOk || !envStatus) return null;
 
   const missing: string[] = [];
+  const onVercel =
+    typeof window !== "undefined" &&
+    (window.location.hostname.endsWith(".vercel.app") ||
+      window.location.hostname.includes("vercel.app"));
+
   if (!envStatus.anthropic && !envStatus.openai && !envStatus.google) {
-    missing.push("ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY in .env.local");
+    missing.push(
+      onVercel
+        ? "ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY in Vercel Environment Variables"
+        : "ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY in .env.local",
+    );
   }
-  if (!envStatus.harborBin) {
+  if (!envStatus.harborBin && !onVercel) {
     missing.push(`\`${envStatus.harborBinName ?? "harbor"}\` on PATH (or set HARBOR_BIN)`);
   }
-  if (!envStatus.ghCli) {
+  if (!envStatus.ghCli && !onVercel) {
     missing.push("`gh` CLI on PATH");
-  } else {
+  } else if (!onVercel) {
     missing.push("run `gh auth login` if publish fails (token may be expired)");
+  }
+  if (onVercel && !envStatus.harborBin) {
+    missing.push("Harbor CLI and Docker are not available on Vercel — run sweeps/publish locally");
   }
 
   return (
@@ -54,8 +66,16 @@ export function LiveSetupBanner() {
             ))}
           </ul>
           <p className="mt-2 text-[12px] text-[var(--fg-muted)]">
-            Edit <code className="mono">.env.local</code>, paste at least one LLM key, then restart{" "}
-            <code className="mono">npm run dev</code>.
+            {onVercel ? (
+              <>
+                Open Vercel → Project → Settings → Environment Variables, add at least one LLM key, then redeploy.
+              </>
+            ) : (
+              <>
+                Edit <code className="mono">.env.local</code>, paste at least one LLM key, then restart{" "}
+                <code className="mono">npm run dev</code>.
+              </>
+            )}
           </p>
         </div>
         <button

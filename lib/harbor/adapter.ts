@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { repoPath, repoRoot } from "@/lib/server/cwd";
 
 export type HarborAgent = "oracle" | "nop" | "gemini-cli" | "claude-cli";
 
@@ -77,7 +78,7 @@ export async function runHarborTrial({
   }
 
   const child = spawn(harborBin, args, {
-    cwd: process.cwd(),
+    cwd: repoRoot(),
     env: process.env,
   });
 
@@ -122,10 +123,7 @@ export async function runHarborTrial({
 
 function inferRunPath(output: string, logsDir: string) {
   const match = output.match(/logs\/[^\s"']+/);
-  const base = process.cwd();
-  return match
-    ? /* turbopackIgnore: true */ path.join(base, match[0])
-    : /* turbopackIgnore: true */ path.join(base, logsDir);
+  return match ? repoPath(match[0]) : repoPath(logsDir);
 }
 
 async function readReward(runPath: string) {

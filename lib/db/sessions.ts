@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { db } from "./client";
 import { workspaceSessions } from "./schema";
-import type { WorkbenchSnapshot } from "@/lib/workbench/store";
+import type { WorkbenchSnapshot } from "@/lib/workbench/types";
 
 export type SessionRow = {
   id: string;

@@ -11,10 +11,8 @@ import { stageForPhase } from "@/lib/agent/stages";
 import type {
   AgentEvent,
   Artifact,
-  AuditSummary,
   ApprovalGate,
   ChatMessage,
-  DecisionReportEntry,
   PlanStep,
   ProbeSummary,
   SpoilerFinding,
@@ -23,57 +21,21 @@ import type {
   WeaknessReport,
   WorkspaceState,
 } from "@/lib/agent/types";
+import type {
+  EnvStatus,
+  FocusTarget,
+  Notice,
+  ResultSurface,
+  WorkbenchSnapshot,
+} from "@/lib/workbench/types";
 
-export type FocusTarget =
-  | { kind: "none" }
-  | { kind: "artifact"; path: string }
-  | { kind: "result"; result: ResultSurface };
-
-export type ResultSurface =
-  | "probe"
-  | "sweep"
-  | "cascade"
-  | "audit"
-  | "iteration"
-  | "spoilers";
-
-export type Notice = {
-  id: string;
-  level: "info" | "warning" | "error";
-  message: string;
-  createdAt: number;
-};
-
-export type EnvStatus = {
-  anthropic: boolean;
-  openai: boolean;
-  google: boolean;
-  harborBin: boolean;
-  harborBinName?: string;
-  harborAuth: boolean;
-  harborPublishOrg: string | null;
-  ghCli: boolean;
-  publishOwner: string | null;
-  publishTarget: "registry" | "github" | "both";
-};
-
-export type WorkbenchSnapshot = {
-  workspace: WorkspaceState;
-  messages: ChatMessage[];
-  focus: FocusTarget;
-  recentArtifacts: string[];
-  resultsAvailable: Record<ResultSurface, boolean>;
-  probeSummary?: ProbeSummary;
-  probeSummaries: ProbeSummary[];
-  sweepSummary?: SweepSummary;
-  weaknessReport?: WeaknessReport;
-  decisionReport: DecisionReportEntry[];
-  resultTimestamps: Partial<Record<ResultSurface, number>>;
-  spoilerFindings: SpoilerFinding[];
-  audit?: AuditSummary;
-  latestIterationPath?: string;
-  plan: PlanStep[];
-};
+export type {
+  EnvStatus,
+  FocusTarget,
+  Notice,
+  ResultSurface,
+  WorkbenchSnapshot,
+} from "@/lib/workbench/types";
 
 type WorkbenchState = WorkbenchSnapshot & {
   isStreaming: boolean;
@@ -481,6 +443,7 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
     }));
 
     let buffer = "";
+    let streamReceivedPayload = false;
 
     try {
       const state = get();
@@ -512,8 +475,24 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
         signal: controller.signal,
       });
 
+      if (!response.ok) {
+        const bodyText = await response.text().catch(() => "");
+        const snippet = bodyText
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 240);
+        throw new Error(
+          response.status >= 500
+            ? `Agent API server error (${response.status}).${
+                snippet ? ` ${snippet}` : " Check deployment logs and environment variables."
+              }`
+            : `Agent API request failed (${response.status})${snippet ? `: ${snippet}` : ""}`,
+        );
+      }
+
       if (!response.body) {
-        throw new Error("No response body");
+        throw new Error("No response body from agent API");
       }
 
       const reader = response.body.getReader();
@@ -538,7 +517,19 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
             continue;
           }
 
+          streamReceivedPayload = true;
           applyEventToStore(event, assistantId, set);
+        }
+      }
+
+      if (buffer.trim().startsWith("data: ")) {
+        const payload = buffer.trim().slice("data: ".length);
+        try {
+          const event = JSON.parse(payload) as AgentEvent;
+          streamReceivedPayload = true;
+          applyEventToStore(event, assistantId, set);
+        } catch {
+          /* trailing partial frame */
         }
       }
     } catch (error) {
@@ -554,7 +545,7 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
                 pending: false,
                 content: aborted
                   ? `${message.content}\n\n_Stream stopped by user._`
-                  : `${message.content}\n\n_Stream failed: ${
+                  : `${message.content}${message.content ? "\n\n" : ""}_Stream failed: ${
                       error instanceof Error ? error.message : "unknown error"
                     }_`,
               }
@@ -565,9 +556,27 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
       activeStreamController = null;
       set((state) => ({
         isStreaming: false,
-        messages: state.messages.map((message) =>
-          message.id === assistantId ? { ...message, pending: false } : message,
-        ),
+        messages: state.messages.map((message) => {
+          if (message.id !== assistantId) return message;
+          const hasContent = message.content.trim().length > 0;
+          const hasTools = (message.toolCalls?.length ?? 0) > 0;
+          if (!hasContent && !hasTools && !streamReceivedPayload) {
+            return {
+              ...message,
+              pending: false,
+              content:
+                "_The agent returned no output. Add an LLM API key (see banner above), confirm `/api/agent` is healthy, then retry._",
+            };
+          }
+          if (!hasContent && !hasTools && streamReceivedPayload) {
+            return {
+              ...message,
+              pending: false,
+              content: "_The agent finished without a visible message. Check the Studio panel for artifacts or retry._",
+            };
+          }
+          return { ...message, pending: false };
+        }),
       }));
       get().scheduleProjectSave();
     }
@@ -862,10 +871,21 @@ function applyEventToStore(
             ? {
                 ...message,
                 pending: false,
-                content: `${message.content}\n\n_${event.message}_`,
+                content: message.content
+                  ? `${message.content}\n\n_${event.message}_`
+                  : event.message,
               }
             : message,
         ),
+        notices: [
+          ...state.notices,
+          {
+            id: `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            level: "error" as const,
+            message: event.message,
+            createdAt: Date.now(),
+          },
+        ],
       }));
       break;
   }

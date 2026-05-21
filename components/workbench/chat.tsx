@@ -71,13 +71,21 @@ function MessageBubble({ message, isLastAssistant }: { message: ChatMessage; isL
               )}
             </div>
 
-            {message.content && (
+            {message.content ? (
               <p className={cn(
                 "text-[14px] leading-[1.6] text-[var(--fg-secondary)] whitespace-pre-wrap",
                 message.pending && !isUser && "caret",
               )}>
                 {message.content}
               </p>
+            ) : (
+              !message.pending &&
+              !isUser &&
+              !(message.toolCalls && message.toolCalls.length > 0) && (
+                <p className="text-[14px] leading-[1.6] text-[var(--fg-muted)] italic">
+                  No response content. Check the setup banner or retry.
+                </p>
+              )
             )}
 
             {message.toolCalls && message.toolCalls.length > 0 && (
