@@ -190,3 +190,10 @@ export const iterations = pgTable("iterations", {
   acceptedByUserAt: timestamp("accepted_by_user_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const workspaceSessions = pgTable("workspace_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().default("Untitled"),
+  snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

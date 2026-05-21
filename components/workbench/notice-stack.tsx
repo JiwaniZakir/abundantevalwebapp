@@ -1,29 +1,14 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AlertTriangle, CheckCircle2, X, XCircle } from "lucide-react";
 import { useEffect } from "react";
 import { useWorkbench } from "@/lib/workbench/store";
+import { cn } from "@/lib/utils";
 
-const tone = {
-  info: {
-    bg: "bg-[var(--paper-pure)]",
-    border: "border-[var(--hairline-strong)]",
-    accent: "text-[var(--status-blue)]",
-    icon: Info,
-  },
-  warning: {
-    bg: "bg-[var(--status-amber-soft)]",
-    border: "border-[var(--status-amber-soft)]",
-    accent: "text-[var(--status-amber)]",
-    icon: AlertTriangle,
-  },
-  error: {
-    bg: "bg-[var(--status-red-soft)]",
-    border: "border-[var(--status-red-soft)]",
-    accent: "text-[var(--status-red)]",
-    icon: XCircle,
-  },
+const tones = {
+  info: { bg: "bg-white", border: "border-[var(--border-strong)]", accent: "text-[var(--blue)]", Icon: CheckCircle2 },
+  warning: { bg: "bg-[var(--amber-soft)]", border: "border-[var(--amber-soft)]", accent: "text-[var(--amber)]", Icon: AlertTriangle },
+  error: { bg: "bg-[var(--red-soft)]", border: "border-[var(--red-soft)]", accent: "text-[var(--red)]", Icon: XCircle },
 } as const;
 
 export function NoticeStack() {
@@ -32,47 +17,28 @@ export function NoticeStack() {
 
   useEffect(() => {
     const timers = notices
-      .filter((notice) => notice.level !== "error")
-      .map((notice) =>
-        window.setTimeout(() => dismissNotice(notice.id), 6500),
-      );
-    return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
+      .filter((n) => n.level !== "error")
+      .map((n) => window.setTimeout(() => dismissNotice(n.id), 6500));
+    return () => { timers.forEach((t) => window.clearTimeout(t)); };
   }, [notices, dismissNotice]);
 
   return (
-    <div className="pointer-events-none fixed bottom-6 right-6 z-50 flex w-[360px] flex-col gap-2">
-      <AnimatePresence>
-        {notices.map((notice) => {
-          const variant = tone[notice.level];
-          const Icon = notice.level === "info" ? CheckCircle2 : variant.icon;
-          return (
-            <motion.div
-              key={notice.id}
-              layout
-              initial={{ opacity: 0, y: 12, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 6, scale: 0.97 }}
-              transition={{ type: "spring", stiffness: 320, damping: 32 }}
-              className={`pointer-events-auto flex items-start gap-3 rounded-xl border ${variant.border} ${variant.bg} px-4 py-3 shadow-[var(--shadow-pop)]`}
-            >
-              <Icon className={`mt-0.5 h-4 w-4 ${variant.accent}`} />
-              <p className="flex-1 text-[12.5px] leading-6 text-[var(--ink)]">
-                {notice.message}
-              </p>
-              <button
-                type="button"
-                onClick={() => dismissNotice(notice.id)}
-                className="text-[var(--ink-muted)] hover:text-[var(--ink)]"
-                aria-label="Dismiss notification"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </motion.div>
-          );
-        })}
-      </AnimatePresence>
+    <div className="pointer-events-none fixed bottom-6 right-6 z-50 flex w-[340px] flex-col gap-2">
+      {notices.map((notice) => {
+        const t = tones[notice.level];
+        return (
+          <div
+            key={notice.id}
+            className={cn("pointer-events-auto flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg animate-fade-in", t.border, t.bg)}
+          >
+            <t.Icon className={cn("mt-0.5 h-4 w-4 shrink-0", t.accent)} />
+            <p className="flex-1 text-[13px] leading-relaxed text-[var(--fg)]">{notice.message}</p>
+            <button type="button" onClick={() => dismissNotice(notice.id)} className="text-[var(--fg-muted)] hover:text-[var(--fg)]">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -1,23 +1,25 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
   subsets: ["latin"],
   display: "swap",
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
   subsets: ["latin"],
   display: "swap",
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
   title: "Harbor Eval Studio",
   description:
-    "Agentic workbench for designing Harbor evals: weakness mapping, probing, scaffolding, sweeping, auditing, iterating.",
+    "Autonomous eval pipeline: weakness mapping, batch probes, Harbor validation, and registry publish.",
 };
 
 export default function RootLayout({
@@ -26,8 +28,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body className="h-screen overflow-hidden">{children}</body>
+    <html lang="en" className={`${jakarta.variable} ${plexMono.variable}`}>
+      <body className="h-screen overflow-hidden antialiased">{children}</body>
     </html>
   );
 }

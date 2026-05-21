@@ -8,6 +8,13 @@
       "when": 1779341592337,
       "tag": "0000_powerful_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779500000000,
+      "tag": "0001_workspace_sessions",
+      "breakpoints": true
     }
   ]
 }

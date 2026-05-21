@@ -1,6 +1,10 @@
-import { generateObject } from "ai";
 import { z } from "zod";
+import {
+  coerceFixtureSpecCategories,
+  coerceSampleRows,
+} from "./coerce-llm-json";
 import { getAiModel } from "./providers";
+import { generateStructuredObject } from "./structured-output";
 import {
   emitCsv,
   emitJson,
@@ -10,30 +14,35 @@ import {
 } from "@/lib/fixtures/emitters";
 import type { Artifact } from "@/lib/agent/types";
 
-export const fixtureSpecSchema = z.object({
-  seed: z.number().int().default(42),
-  categories: z
-    .array(
-      z.object({
-        slug: z.string().regex(/^[a-z0-9_]+$/),
-        label: z.string(),
-        purpose: z.enum(["clean", "trap", "bait", "authority"]),
-        kind: z.enum(["csv", "json", "jsonl", "markdown", "policy_text"]),
-        path: z.string().describe("Path relative to /root/data."),
-        count: z.number().int().min(1).max(120),
-        columns: z
-          .array(z.string())
-          .optional()
-          .describe("CSV columns when kind=csv."),
-        sampleRows: z
-          .array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])))
-          .optional()
-          .describe("Up to 5 sample rows demonstrating shape."),
-        notes: z.string().optional(),
-      }),
+const fixtureCategorySchema = z.object({
+  slug: z.string().min(1),
+  label: z.string(),
+  purpose: z.enum(["clean", "trap", "bait", "authority"]),
+  kind: z.enum(["csv", "json", "jsonl", "markdown", "policy_text"]),
+  path: z.string().describe("Path relative to /root/data."),
+  count: z.coerce.number().int().min(1).max(120),
+  columns: z
+    .array(z.string())
+    .optional()
+    .describe("CSV columns when kind=csv."),
+  sampleRows: z
+    .preprocess(
+      coerceSampleRows,
+      z
+        .array(z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])))
+        .optional(),
     )
-    .min(1)
-    .max(10),
+    .optional()
+    .describe("Up to 5 sample rows demonstrating shape."),
+  notes: z.string().optional(),
+});
+
+export const fixtureSpecSchema = z.object({
+  seed: z.coerce.number().int().optional(),
+  categories: z.preprocess(
+    coerceFixtureSpecCategories,
+    z.array(fixtureCategorySchema).min(1).max(10),
+  ),
 });
 
 export type FixtureSpec = z.infer<typeof fixtureSpecSchema>;
@@ -45,7 +54,8 @@ Hard rules:
 - Bait/trap categories must NOT carry self-incriminating column names (no "is_trap", "wrong_value"). Use realistic columns.
 - Authority artifacts use kind=policy_text or markdown.
 - Provide at least one clean and one trap category, plus at least one authority artifact.
-- File paths use kebab/snake-case under realistic subdirs.`;
+- File paths use kebab/snake-case under realistic subdirs.
+- categories must be a JSON array of objects (slug, label, purpose, kind, path, count, ...). Do not return category names as plain strings.`;
 
 export async function generateFixtureSpec({
   provider,
@@ -62,13 +72,14 @@ export async function generateFixtureSpec({
   domain: string;
   categoriesHint: Array<{ name: string; count: number; description: string }>;
 }): Promise<FixtureSpec> {
-  const result = await generateObject({
+  const spec = await generateStructuredObject({
     model: getAiModel(provider, modelSlug),
     schema: fixtureSpecSchema,
+    schemaName: "FixtureSpec",
     system: fixtureSystemPrompt,
     prompt: `Domain: ${domain}\nDeliverable: ${deliverable}\nWeakness: ${weaknessTitle}\n\nSuggested categories from intake:\n${JSON.stringify(categoriesHint, null, 2)}\n\nReturn a complete fixture spec.`,
   });
-  return result.object;
+  return { ...spec, seed: spec.seed ?? 42 };
 }
 
 function nudgeNumber(seed: number, salt: number) {
@@ -112,7 +123,7 @@ export function materializeFixtures(spec: FixtureSpec): Artifact[] {
       : `environment/data/${path}`;
 
     let content = "";
-    let kind: Artifact["kind"];
+    let kind: Artifact["kind"] = "csv";
     const sampleRows = category.sampleRows ?? [];
     const columns = category.columns ?? Object.keys(sampleRows[0] ?? { id: "id" });
 

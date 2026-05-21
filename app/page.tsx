@@ -3,58 +3,85 @@
 import { useCallback, useEffect, useState } from "react";
 import { Chat } from "@/components/workbench/chat";
 import { CommandPalette } from "@/components/workbench/command-palette";
-import { EnvBanner } from "@/components/workbench/env-banner";
-import { FocusSurface } from "@/components/workbench/focus-surface";
+import { FileExplorer } from "@/components/workbench/file-explorer";
+import { AgentPanel } from "@/components/workbench/agent-panel";
+import { LiveSetupBanner } from "@/components/workbench/live-setup-banner";
 import { NoticeStack } from "@/components/workbench/notice-stack";
 import { PublishDialog } from "@/components/workbench/publish-dialog";
-import { Sidebar } from "@/components/workbench/sidebar";
-import { TaskPackDrawer } from "@/components/workbench/task-pack-drawer";
 import { TopBar } from "@/components/workbench/top-bar";
 import { useWorkbench } from "@/lib/workbench/store";
 
 export default function WorkbenchPage() {
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const setTaskPackOpen = useWorkbench((s) => s.setTaskPackOpen);
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
+  const setFocus = useWorkbench((s) => s.setFocus);
+  const hydrateFromSnapshot = useWorkbench((s) => s.hydrateFromSnapshot);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/projects")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.latest?.snapshot) return;
+        hydrateFromSnapshot(data.latest.snapshot, data.latest.id);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrateFromSnapshot]);
 
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      const cmdOrCtrl = event.metaKey || event.ctrlKey;
+      const mod = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
-      if (cmdOrCtrl && key === "k") {
+      if (mod && key === "k") {
         event.preventDefault();
-        setPaletteOpen((value) => !value);
+        setPaletteOpen((v) => !v);
       }
-      if (cmdOrCtrl && key === "b") {
+      if (mod && key === "b") {
         event.preventDefault();
-        const current = useWorkbench.getState().taskPackOpen;
-        setTaskPackOpen(!current);
+        setLeftOpen((v) => !v);
       }
-      if (cmdOrCtrl && key === "j") {
+      if (mod && key === "j") {
         event.preventDefault();
-        const textarea = document.querySelector<HTMLTextAreaElement>(
-          'aside textarea',
-        );
-        textarea?.focus();
+        requestAnimationFrame(() => {
+          document.querySelector<HTMLTextAreaElement>("#chat-composer")?.focus();
+        });
+      }
+      if (mod && key === "\\") {
+        event.preventDefault();
+        setRightOpen((v) => !v);
+      }
+      if (mod && key === "e") {
+        event.preventDefault();
+        setFocus({ kind: "none" });
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [setTaskPackOpen]);
+  }, [setFocus]);
 
   return (
-    <div className="flex h-screen flex-col bg-[var(--cream)]">
-      <TopBar onOpenPalette={openPalette} />
-      <EnvBanner />
+    <div className="flex h-screen flex-col bg-[var(--bg)]">
+      <TopBar
+        onOpenPalette={openPalette}
+        leftOpen={leftOpen}
+        rightOpen={rightOpen}
+        onToggleLeft={() => setLeftOpen((v) => !v)}
+        onToggleRight={() => setRightOpen((v) => !v)}
+      />
+      <LiveSetupBanner />
       <div className="flex min-h-0 flex-1">
-        <Sidebar />
-        <FocusSurface />
+        {leftOpen && <FileExplorer />}
         <Chat />
+        {rightOpen && <AgentPanel />}
       </div>
       <CommandPalette open={paletteOpen} onClose={closePalette} />
-      <TaskPackDrawer />
       <PublishDialog />
       <NoticeStack />
     </div>

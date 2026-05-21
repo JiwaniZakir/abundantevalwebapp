@@ -19,6 +19,49 @@ export type HarborTrialResult = {
   logPath: string;
 };
 
+export type HarborMultiTrialResult = {
+  trials: HarborTrialResult[];
+  passCount: number;
+  total: number;
+  passAtK: string;
+};
+
+export async function runHarborTrials({
+  taskDir,
+  agent,
+  model,
+  trialCount = 1,
+  logsDir = "logs",
+  onLog,
+  onTrialComplete,
+}: HarborTrialArgs & {
+  trialCount?: number;
+  onTrialComplete?: (idx: number, result: HarborTrialResult) => void;
+}): Promise<HarborMultiTrialResult> {
+  const trials: HarborTrialResult[] = [];
+  let passCount = 0;
+
+  for (let idx = 0; idx < trialCount; idx++) {
+    const result = await runHarborTrial({
+      taskDir,
+      agent,
+      model,
+      logsDir,
+      onLog,
+    });
+    trials.push(result);
+    if (result.reward === 1) passCount++;
+    onTrialComplete?.(idx + 1, result);
+  }
+
+  return {
+    trials,
+    passCount,
+    total: trialCount,
+    passAtK: `${passCount}/${trialCount}`,
+  };
+}
+
 export async function runHarborTrial({
   taskDir,
   agent,
@@ -27,7 +70,7 @@ export async function runHarborTrial({
   onLog,
 }: HarborTrialArgs): Promise<HarborTrialResult> {
   const harborBin = process.env.HARBOR_BIN ?? "harbor";
-  const args = ["run", "--task", taskDir, "-a", agent];
+  const args = ["run", "-p", taskDir, "-a", agent];
 
   if (model) {
     args.push("-m", model);

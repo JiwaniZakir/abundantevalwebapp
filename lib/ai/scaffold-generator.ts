@@ -1,12 +1,9 @@
-import { generateObject } from "ai";
 import { z } from "zod";
 import { getAiModel } from "./providers";
+import { generateStructuredObject } from "./structured-output";
 
 export const scaffoldSchema = z.object({
-  slug: z
-    .string()
-    .regex(/^[a-z0-9-]+$/)
-    .describe("Kebab-case task slug, e.g. invoice-reconciliation."),
+  slug: z.string().min(1).describe("Kebab-case task slug, e.g. invoice-reconciliation."),
   outputFilename: z
     .string()
     .describe("Exact deliverable path, e.g. /root/audit_report.xlsx."),
@@ -55,12 +52,11 @@ export async function generateScaffold({
   domain: string;
   fixtureCategories: Array<{ name: string; count: number; description: string }>;
 }): Promise<Scaffold> {
-  const result = await generateObject({
+  return generateStructuredObject({
     model: getAiModel(provider, modelSlug),
     schema: scaffoldSchema,
+    schemaName: "HarborScaffold",
     system: scaffoldSystemPrompt,
     prompt: `Domain: ${domain}\nDeliverable: ${deliverable}\nWeakness title: ${weaknessTitle}\nHypothesis: ${hypothesis}\nBad heuristic (for your internal awareness only, do not echo): ${badHeuristic}\nAuthority invariant the deliverable must respect: ${authorityInvariant}\nFixture categories: ${JSON.stringify(fixtureCategories, null, 2)}\n\nReturn a complete Harbor task pack.`,
   });
-
-  return result.object;
 }

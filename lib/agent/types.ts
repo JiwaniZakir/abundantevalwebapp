@@ -17,8 +17,10 @@ export type ToolName =
   | "list_workspace"
   | "read_artifact"
   | "write_artifact"
-  | "propose_weakness_card"
   | "intake_workflow"
+  | "map_workflow_weaknesses"
+  | "batch_probe_candidates"
+  | "render_probe_decision_report"
   | "run_probe_variants"
   | "lint_spoilers"
   | "generate_fixtures"
@@ -75,6 +77,35 @@ export type Artifact = {
   badge?: string;
   updatedAt: number;
   dirty?: boolean;
+  taskSlug?: string;
+};
+
+export type WeaknessCandidate = {
+  slug: string;
+  weaknessTitle: string;
+  domain: string;
+  deliverable: string;
+  hypothesis: string;
+  badHeuristic: string;
+  authorityInvariant: string;
+  taxonomySlug: string;
+  workflowFitScore: number;
+  verifierStrategy: string;
+  status: "candidate" | "approved" | "rejected" | "promoted" | "redesign";
+};
+
+export type WeaknessReport = {
+  workflowDescription: string;
+  candidates: WeaknessCandidate[];
+  createdAt: number;
+};
+
+export type DecisionReportEntry = {
+  slug: string;
+  weaknessTitle: string;
+  verdict: ProbeSummary["verdict"];
+  aggregateFailureRate: number;
+  recommendedAction: string;
 };
 
 export type WorkspaceState = {
@@ -127,6 +158,24 @@ export type AuditSummary = {
   auditorModel: string;
   classification: string;
   rationale: string;
+  steps?: Array<{
+    id: string;
+    label: string;
+    kind: "model" | "tool" | "verifier" | "notice";
+    excerpt?: string;
+    reward?: number;
+    failed?: boolean;
+  }>;
+};
+
+export type ApprovalGate = {
+  gateId: string;
+  title: string;
+  description: string;
+  stage: string;
+  candidateCount?: number;
+  promoteCount?: number;
+  taskSlug?: string;
 };
 
 export type AgentEvent =
@@ -143,9 +192,21 @@ export type AgentEvent =
     }
   | { type: "artifact"; artifact: Artifact }
   | { type: "probe_summary"; summary: ProbeSummary }
+  | { type: "probe_batch_summary"; summaries: ProbeSummary[] }
+  | { type: "weakness_report"; report: WeaknessReport }
+  | { type: "decision_report"; entries: DecisionReportEntry[] }
+  | { type: "sweep_trial_update"; trial: SweepSummary["trials"][number] }
+  | { type: "sweep_error"; message: string; detail?: string }
   | { type: "sweep_summary"; summary: SweepSummary }
   | { type: "spoiler_findings"; findings: SpoilerFinding[] }
   | { type: "audit"; audit: AuditSummary }
+  | { type: "approval_gate"; gate: ApprovalGate }
+  | {
+      type: "autopilot_status";
+      stage: string;
+      message?: string;
+      awaitingApproval?: boolean;
+    }
   | {
       type: "notice";
       level: "info" | "warning" | "error";

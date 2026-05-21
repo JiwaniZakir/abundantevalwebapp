@@ -67,7 +67,7 @@ export const stageContexts: Record<ProductStage, StageContext> = {
     chips: [
       { label: "Draft a plan", value: "/plan", tone: "primary" },
       { label: "Map weakness", value: "/weakness" },
-      { label: "Use ds-25 demo", value: "Take me through the ds-25 compliance release example end to end." },
+      { label: "Example workflow", value: "I need a Harbor eval for a quarterly compliance release workflow: policy updates, evidence packs, and a signed audit workbook." },
     ],
   },
   probe: {

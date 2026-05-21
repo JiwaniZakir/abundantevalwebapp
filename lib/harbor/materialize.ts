@@ -1,6 +1,7 @@
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceState } from "@/lib/agent/types";
+import { normalizeTaskTomlContent } from "./task-toml";
 
 const DEFAULT_FILES: Record<string, string> = {
   "tests/test.sh": `#!/bin/bash
@@ -31,10 +32,27 @@ export async function materializeWorkspace({
   const wroteFiles: string[] = [];
 
   for (const artifact of Object.values(workspace.artifacts)) {
+    let content = artifact.content;
+    if (artifact.path === "task.toml") {
+      content = normalizeTaskTomlContent(content, {
+        slug: taskSlug,
+        description: workspace.projectName,
+      });
+    }
     const fullPath = path.join(taskDir, artifact.path);
     await mkdir(path.dirname(fullPath), { recursive: true });
-    await writeFile(fullPath, artifact.content, "utf8");
+    await writeFile(fullPath, content, "utf8");
     wroteFiles.push(artifact.path);
+  }
+
+  if (!workspace.artifacts["task.toml"]) {
+    const toml = normalizeTaskTomlContent(undefined, {
+      slug: taskSlug,
+      description: workspace.projectName,
+    });
+    const fullPath = path.join(taskDir, "task.toml");
+    await writeFile(fullPath, toml, "utf8");
+    wroteFiles.push("task.toml");
   }
 
   for (const [relPath, content] of Object.entries(DEFAULT_FILES)) {

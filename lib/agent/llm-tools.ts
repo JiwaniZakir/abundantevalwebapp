@@ -11,7 +11,12 @@ import type {
 import type { EventChannel } from "./event-channel";
 import { stageForPhase } from "./stages";
 import { intakeWorkflow } from "@/lib/ai/workflow-intake";
-import { runProbeSweep } from "@/lib/ai/probe-runner";
+import { mapWorkflowWeaknesses, renderWeaknessReportMarkdown } from "@/lib/ai/weakness-map";
+import { runProbeSweep, runBatchProbeSweep } from "@/lib/ai/probe-runner";
+import {
+  buildDecisionReportEntries,
+  renderDecisionReportMarkdown,
+} from "@/lib/ai/decision-report";
 import { generateScaffold } from "@/lib/ai/scaffold-generator";
 import {
   generateFixtureSpec,
@@ -19,8 +24,10 @@ import {
 } from "@/lib/ai/fixture-generator";
 import { lintSpoilersHybrid } from "@/lib/ai/spoiler-lint";
 import { auditTrajectoryWithLlm } from "@/lib/ai/trajectory-audit";
-import { runHarborTrial } from "@/lib/harbor/adapter";
+import { runHarborTrial, runHarborTrials } from "@/lib/harbor/adapter";
 import { materializeWorkspace } from "@/lib/harbor/materialize";
+import { validateTaskPack } from "@/lib/harbor/validate-task";
+import { buildTaskToml, normalizeTaskTomlContent } from "@/lib/harbor/task-toml";
 
 export type ToolBindings = {
   workspace: WorkspaceState;
@@ -170,7 +177,8 @@ export function buildLlmTools(bindings: ToolBindings) {
           .replace(/^-+|-+$/g, "")
           .slice(0, 60)}.md`;
 
-        const body = `# ${intake.weaknessTitle}\n\n- Domain: ${intake.domain}\n- Deliverable: ${intake.deliverable}\n- Taxonomy: ${intake.taxonomySlug}\n- Authority invariant: ${intake.authorityInvariant}\n\n## Hypothesis\n${intake.hypothesis}\n\n## Bad heuristic (internal only)\n${intake.badHeuristic}\n`;
+        const title = intake.weaknessTitle.slice(0, 80);
+        const body = `# ${title}\n\n- Domain: ${intake.domain}\n- Deliverable: ${intake.deliverable}\n- Taxonomy: ${intake.taxonomySlug}\n- Authority invariant: ${intake.authorityInvariant}\n\n## Hypothesis\n${intake.hypothesis.slice(0, 500)}\n\n## Bad heuristic (internal only)\n${intake.badHeuristic.slice(0, 200)}\n`;
 
         applyArtifact(bindings, {
           path: cardPath,
@@ -184,6 +192,126 @@ export function buildLlmTools(bindings: ToolBindings) {
         setPhase(bindings, "weakness");
 
         return { ok: true, intake };
+      },
+    }),
+
+    map_workflow_weaknesses: tool({
+      description:
+        "Map a workflow to 5-10 ranked weakness candidates across the failure-mode taxonomy. Call this for /weakness before probing.",
+      inputSchema: z.object({
+        description: z.string().min(8),
+      }),
+      execute: async ({ description }) => {
+        setPhase(bindings, "intake");
+        const report = await mapWorkflowWeaknesses({
+          provider: bindings.intakeProvider,
+          modelSlug: bindings.intakeModelSlug,
+          description,
+        });
+
+        applyArtifact(bindings, {
+          path: "weakness/candidates.json",
+          kind: "json",
+          badge: "weakness map",
+          content: JSON.stringify(report, null, 2),
+          updatedAt: Date.now(),
+          dirty: true,
+        });
+
+        applyArtifact(bindings, {
+          path: "weakness/report.md",
+          kind: "markdown",
+          badge: "weakness map",
+          content: renderWeaknessReportMarkdown(report),
+          updatedAt: Date.now(),
+          dirty: true,
+        });
+
+        bindings.channel.push({ type: "weakness_report", report });
+        setPhase(bindings, "weakness");
+        return { ok: true, count: report.candidates.length, report };
+      },
+    }),
+
+    batch_probe_candidates: tool({
+      description:
+        "Run probe sweeps for multiple weakness candidates (approved slugs from weakness/candidates.json).",
+      inputSchema: z.object({
+        candidates: z.array(
+          z.object({
+            slug: z.string(),
+            weaknessTitle: z.string(),
+            deliverable: z.string(),
+            badHeuristic: z.string(),
+            authorityInvariant: z.string(),
+            authorityArtifacts: z.array(z.string()).default([]),
+          }),
+        ),
+        trialsPerVariant: z.number().int().min(1).max(15).optional(),
+      }),
+      execute: async ({ candidates, trialsPerVariant }) => {
+        setPhase(bindings, "probe");
+        const trials = trialsPerVariant ?? bindings.trialsPerVariant;
+        const summaries = await runBatchProbeSweep(candidates, {
+          provider: bindings.targetProvider,
+          modelSlug: bindings.targetModelSlug,
+          judgeProvider: bindings.judgeProvider,
+          judgeModelSlug: bindings.judgeModelSlug,
+          trialsPerVariant: trials,
+        });
+
+        for (const summary of summaries) {
+          const slug = summary.weaknessTitle
+            .toLowerCase()
+            .replaceAll(/[^a-z0-9]+/g, "-")
+            .slice(0, 48);
+          applyArtifact(bindings, {
+            path: `probe/${slug}.json`,
+            kind: "json",
+            badge: "probe results",
+            content: JSON.stringify(summary, null, 2),
+            updatedAt: Date.now(),
+            dirty: true,
+          });
+        }
+
+        bindings.channel.push({ type: "probe_batch_summary", summaries });
+        if (summaries[0]) {
+          bindings.channel.push({ type: "probe_summary", summary: summaries[0] });
+        }
+
+        setPhase(bindings, "decision");
+        return { ok: true, summaries };
+      },
+    }),
+
+    render_probe_decision_report: tool({
+      description: "Render a markdown decision report from probe batch results.",
+      inputSchema: z.object({
+        summaries: z.array(
+          z.object({
+            weaknessTitle: z.string(),
+            verdict: z.enum(["promote", "redesign", "reject"]),
+            aggregateFailureRate: z.number(),
+            variants: z.array(z.unknown()).optional(),
+          }),
+        ),
+      }),
+      execute: async ({ summaries }) => {
+        const entries = buildDecisionReportEntries(
+          summaries as Parameters<typeof buildDecisionReportEntries>[0],
+        );
+        const markdown = renderDecisionReportMarkdown(entries);
+        applyArtifact(bindings, {
+          path: "weakness/decision-report.md",
+          kind: "markdown",
+          badge: "decision report",
+          content: markdown,
+          updatedAt: Date.now(),
+          dirty: true,
+        });
+        bindings.channel.push({ type: "decision_report", entries });
+        return { ok: true, entries };
       },
     }),
 
@@ -303,9 +431,13 @@ export function buildLlmTools(bindings: ToolBindings) {
         });
 
         const now = Date.now();
+        const taskToml = normalizeTaskTomlContent(scaffold.taskToml, {
+          slug: scaffold.slug,
+          description: args.weaknessTitle,
+        });
         const files: Array<{ path: string; content: string; badge: string; kind: Artifact["kind"] }> = [
           { path: "instruction.md", content: scaffold.instructionMd, badge: "operational", kind: "markdown" },
-          { path: "task.toml", content: scaffold.taskToml, badge: "metadata", kind: "toml" },
+          { path: "task.toml", content: taskToml, badge: "metadata", kind: "toml" },
           { path: "environment/Dockerfile", content: scaffold.dockerfile, badge: "environment", kind: "shell" },
           {
             path: "environment/data/build_inputs.py",
@@ -338,6 +470,7 @@ export function buildLlmTools(bindings: ToolBindings) {
             content: file.content,
             updatedAt: now,
             dirty: true,
+            taskSlug: scaffold.slug,
           });
         }
 
@@ -388,6 +521,14 @@ export function buildLlmTools(bindings: ToolBindings) {
           taskSlug: slug,
         });
 
+        const validation = await validateTaskPack(taskDir);
+        if (!validation.ok) {
+          await rm(tempRoot, { recursive: true, force: true });
+          const message = validation.errors.join("; ");
+          bindings.channel.push({ type: "sweep_error", message, detail: message });
+          return { error: "validation_failed", detail: message };
+        }
+
         const trialAgent =
           agent === "oracle"
             ? "oracle"
@@ -395,45 +536,62 @@ export function buildLlmTools(bindings: ToolBindings) {
               ? "nop"
               : "gemini-cli";
 
-        let result;
+        const trialCount = agent === "target" ? 3 : 1;
+
         try {
-          result = await runHarborTrial({
+          const multi = await runHarborTrials({
             taskDir,
             agent: trialAgent,
             model: agent === "target" ? bindings.targetModelSlug : undefined,
+            trialCount,
+            onTrialComplete: (idx, result) => {
+              bindings.channel.push({
+                type: "sweep_trial_update",
+                trial: {
+                  idx,
+                  reward: result.reward,
+                  status: result.reward === 1 ? "passed" : "failed",
+                  summary:
+                    agent === "oracle"
+                      ? "Oracle reproduces the deliverable."
+                      : agent === "nop"
+                        ? "Nop produced no deliverable."
+                        : `Target trial ${idx} complete.`,
+                },
+              });
+            },
           });
-        } catch (error) {
-          await rm(tempRoot, { recursive: true, force: true });
-          return {
-            error: "harbor_failed",
-            detail: error instanceof Error ? error.message : String(error),
-          };
-        }
 
-        const sweepSummary = {
-          taskSlug: slug,
-          passAt3: `${result.reward === 1 ? 1 : 0}/1`,
-          trials: [
-            {
-              idx: 1,
-              reward: result.reward,
-              status: (result.reward === 1 ? "passed" : "failed") as
-                | "passed"
-                | "failed",
+          const sweepSummary = {
+            taskSlug: slug,
+            passAt3: multi.passAtK,
+            trials: multi.trials.map((t, i) => ({
+              idx: i + 1,
+              reward: t.reward,
+              status: (t.reward === 1 ? "passed" : "failed") as "passed" | "failed",
               summary:
                 agent === "oracle"
                   ? "Oracle reproduces the deliverable."
                   : agent === "nop"
                     ? "Nop produced no deliverable."
                     : "Target model trial complete.",
-            },
-          ],
-        };
+            })),
+          };
 
-        bindings.channel.push({ type: "sweep_summary", summary: sweepSummary });
-        if (agent === "target") setPhase(bindings, "audit");
-        await rm(tempRoot, { recursive: true, force: true });
-        return { ok: true, reward: result.reward, logPath: result.logPath };
+          bindings.channel.push({ type: "sweep_summary", summary: sweepSummary });
+          if (agent === "target") setPhase(bindings, "audit");
+          await rm(tempRoot, { recursive: true, force: true });
+          return {
+            ok: true,
+            passAt3: multi.passAtK,
+            logPath: multi.trials.at(-1)?.logPath,
+          };
+        } catch (error) {
+          await rm(tempRoot, { recursive: true, force: true });
+          const detail = error instanceof Error ? error.message : String(error);
+          bindings.channel.push({ type: "sweep_error", message: detail, detail });
+          return { error: "harbor_failed", detail };
+        }
       },
     }),
 

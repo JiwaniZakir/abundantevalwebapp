@@ -1,23 +1,31 @@
 "use client";
 
 import { create } from "zustand";
-import { buildDemoWorkspace } from "@/lib/agent/seed-workspace";
+import {
+  buildAutopilotContinuation,
+  isAutopilotContinuation,
+  parseAutopilotContinuation,
+} from "@/lib/agent/autopilot-continuation";
+import { buildEmptyWorkspace } from "@/lib/agent/seed-workspace";
 import { stageForPhase } from "@/lib/agent/stages";
 import type {
   AgentEvent,
   Artifact,
   AuditSummary,
+  ApprovalGate,
   ChatMessage,
+  DecisionReportEntry,
   PlanStep,
   ProbeSummary,
   SpoilerFinding,
   SweepSummary,
   ToolCall,
+  WeaknessReport,
   WorkspaceState,
 } from "@/lib/agent/types";
 
 export type FocusTarget =
-  | { kind: "briefing" }
+  | { kind: "none" }
   | { kind: "artifact"; path: string }
   | { kind: "result"; result: ResultSurface };
 
@@ -36,42 +44,54 @@ export type Notice = {
   createdAt: number;
 };
 
-export type RuntimeMode = "live" | "demo";
-
 export type EnvStatus = {
   anthropic: boolean;
   openai: boolean;
   google: boolean;
   harborBin: boolean;
   harborBinName?: string;
+  harborAuth: boolean;
+  harborPublishOrg: string | null;
   ghCli: boolean;
   publishOwner: string | null;
+  publishTarget: "registry" | "github" | "both";
 };
 
-type WorkbenchState = {
+export type WorkbenchSnapshot = {
   workspace: WorkspaceState;
   messages: ChatMessage[];
   focus: FocusTarget;
   recentArtifacts: string[];
-  isStreaming: boolean;
-  taskPackOpen: boolean;
-  publishOpen: boolean;
-  mode: RuntimeMode;
-  envStatus: EnvStatus | null;
   resultsAvailable: Record<ResultSurface, boolean>;
   probeSummary?: ProbeSummary;
+  probeSummaries: ProbeSummary[];
   sweepSummary?: SweepSummary;
+  weaknessReport?: WeaknessReport;
+  decisionReport: DecisionReportEntry[];
+  resultTimestamps: Partial<Record<ResultSurface, number>>;
   spoilerFindings: SpoilerFinding[];
   audit?: AuditSummary;
   latestIterationPath?: string;
   plan: PlanStep[];
+};
+
+type WorkbenchState = WorkbenchSnapshot & {
+  isStreaming: boolean;
+  taskPackOpen: boolean;
+  publishOpen: boolean;
+  envStatus: EnvStatus | null;
+  sweepTrialsLive: SweepSummary["trials"];
   notices: Notice[];
+  projectId: string | null;
+  saveDebounceTimer: ReturnType<typeof setTimeout> | null;
+  pendingApproval: ApprovalGate | null;
+  autopilotActive: boolean;
+  autopilotMessage: string | null;
 
   setFocus: (focus: FocusTarget) => void;
   openArtifact: (path: string) => void;
   setTaskPackOpen: (open: boolean) => void;
   setPublishOpen: (open: boolean) => void;
-  setMode: (mode: RuntimeMode) => void;
   setEnvStatus: (status: EnvStatus) => void;
   setTargetModel: (modelSlug: string, runner?: string) => void;
   dismissNotice: (id: string) => void;
@@ -82,11 +102,16 @@ type WorkbenchState = {
     after: string;
   }) => { ok: boolean; reason?: string };
 
-  sendInput: (input: string) => Promise<void>;
+  sendInput: (input: string, options?: { displayContent?: string }) => Promise<void>;
   stopStreaming: () => void;
   regenerateLast: () => Promise<void>;
   editLastUserMessage: (newContent: string) => Promise<void>;
-  resetDemo: () => void;
+  approveWeaknessCandidates: (slugs: string[]) => void;
+  rejectWeaknessCandidates: (slugs: string[]) => void;
+  resetWorkspace: () => void;
+  hydrateFromSnapshot: (snapshot: WorkbenchSnapshot, projectId?: string) => void;
+  scheduleProjectSave: () => void;
+  respondToApproval: (decision: "approve" | "reject") => Promise<void>;
 };
 
 let activeStreamController: AbortController | null = null;
@@ -105,7 +130,7 @@ function initialMessages(): ChatMessage[] {
       role: "assistant",
       createdAt: Date.now(),
       content:
-        "Welcome. Describe the operational workflow you want to turn into a hard Harbor eval, or say \"use the ds-25 demo\" to follow a guided run.",
+        "Describe an operational workflow in plain language. I'll run the full pipeline — weakness map, batch probes, Harbor build, validation, and registry publish — pausing only for your approval at key gates.",
       phase: "intake",
     },
   ];
@@ -129,15 +154,34 @@ function pushRecent(list: string[], path: string) {
   return [path, ...filtered].slice(0, 6);
 }
 
+function snapshotFromState(state: WorkbenchState): WorkbenchSnapshot {
+  return {
+    workspace: state.workspace,
+    messages: state.messages,
+    focus: state.focus,
+    recentArtifacts: state.recentArtifacts,
+    resultsAvailable: state.resultsAvailable,
+    probeSummary: state.probeSummary,
+    probeSummaries: state.probeSummaries,
+    sweepSummary: state.sweepSummary,
+    weaknessReport: state.weaknessReport,
+    decisionReport: state.decisionReport,
+    resultTimestamps: state.resultTimestamps,
+    spoilerFindings: state.spoilerFindings,
+    audit: state.audit,
+    latestIterationPath: state.latestIterationPath,
+    plan: state.plan,
+  };
+}
+
 export const useWorkbench = create<WorkbenchState>((set, get) => ({
-  workspace: buildDemoWorkspace(),
+  workspace: buildEmptyWorkspace(),
   messages: initialMessages(),
-  focus: { kind: "briefing" },
-  recentArtifacts: ["instruction.md"],
+  focus: { kind: "none" },
+  recentArtifacts: [],
   isStreaming: false,
   taskPackOpen: false,
   publishOpen: false,
-  mode: "live",
   envStatus: null,
   resultsAvailable: {
     probe: false,
@@ -147,9 +191,18 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
     iteration: false,
     spoilers: false,
   },
+  probeSummaries: [],
+  sweepTrialsLive: [],
+  decisionReport: [],
+  resultTimestamps: {},
   spoilerFindings: [],
   plan: [],
   notices: [],
+  projectId: null,
+  saveDebounceTimer: null,
+  pendingApproval: null,
+  autopilotActive: false,
+  autopilotMessage: null,
 
   setFocus(focus) {
     set({ focus });
@@ -171,18 +224,8 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
     set({ publishOpen: open });
   },
 
-  setMode(mode) {
-    set({ mode });
-  },
-
   setEnvStatus(envStatus) {
-    set((state) => {
-      const anyKey = envStatus.anthropic || envStatus.openai || envStatus.google;
-      return {
-        envStatus,
-        mode: state.mode === "live" && !anyKey ? "demo" : state.mode,
-      };
-    });
+    set({ envStatus });
   },
 
   setTargetModel(modelSlug, runner) {
@@ -261,13 +304,14 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
     return { ok: true };
   },
 
-  resetDemo() {
+  resetWorkspace() {
     set({
-      workspace: buildDemoWorkspace(),
+      workspace: buildEmptyWorkspace(),
       messages: initialMessages(),
-      focus: { kind: "briefing" },
-      recentArtifacts: ["instruction.md"],
+      focus: { kind: "none" },
+      recentArtifacts: [],
       taskPackOpen: false,
+      projectId: null,
       resultsAvailable: {
         probe: false,
         sweep: false,
@@ -277,23 +321,145 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
         spoilers: false,
       },
       probeSummary: undefined,
+      probeSummaries: [],
       sweepSummary: undefined,
+      sweepTrialsLive: [],
+      weaknessReport: undefined,
+      decisionReport: [],
+      resultTimestamps: {},
       spoilerFindings: [],
       audit: undefined,
       latestIterationPath: undefined,
       plan: [],
       notices: [],
+      pendingApproval: null,
+      autopilotActive: false,
+      autopilotMessage: null,
     });
   },
 
-  async sendInput(rawInput) {
-    const input = rawInput.trim();
+  hydrateFromSnapshot(snapshot, projectId) {
+    set({
+      ...snapshot,
+      isStreaming: false,
+      taskPackOpen: false,
+      publishOpen: false,
+      sweepTrialsLive: snapshot.sweepSummary?.trials ?? [],
+      projectId: projectId ?? get().projectId,
+      notices: [],
+    });
+  },
+
+  scheduleProjectSave() {
+    const state = get();
+    if (state.saveDebounceTimer) clearTimeout(state.saveDebounceTimer);
+    const timer = setTimeout(() => {
+      void (async () => {
+        const current = get();
+        const body = {
+          id: current.projectId ?? undefined,
+          name: current.workspace.projectName,
+          snapshot: snapshotFromState(current),
+        };
+        try {
+          const res = await fetch("/api/projects", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) return;
+          const data = (await res.json()) as { id: string };
+          if (data.id && data.id !== current.projectId) {
+            set({ projectId: data.id });
+          }
+        } catch {
+          /* persistence optional when DB unavailable */
+        }
+      })();
+    }, 1200);
+    set({ saveDebounceTimer: timer });
+  },
+
+  approveWeaknessCandidates(slugs) {
+    set((state) => {
+      if (!state.weaknessReport) return state;
+      const approved = new Set(slugs);
+      return {
+        weaknessReport: {
+          ...state.weaknessReport,
+          candidates: state.weaknessReport.candidates.map((c) =>
+            approved.has(c.slug) ? { ...c, status: "approved" as const } : c,
+          ),
+        },
+      };
+    });
+  },
+
+  rejectWeaknessCandidates(slugs) {
+    set((state) => {
+      if (!state.weaknessReport) return state;
+      const rejected = new Set(slugs);
+      return {
+        weaknessReport: {
+          ...state.weaknessReport,
+          candidates: state.weaknessReport.candidates.map((c) =>
+            rejected.has(c.slug) ? { ...c, status: "rejected" as const } : c,
+          ),
+        },
+      };
+    });
+  },
+
+  async respondToApproval(decision) {
+    const gate = get().pendingApproval;
+    if (!gate || get().isStreaming) return;
+    set({ pendingApproval: null, autopilotActive: decision === "approve" });
+    const continuation = buildAutopilotContinuation(
+      gate.gateId,
+      gate.stage as import("@/lib/agent/autopilot-continuation").AutopilotStage,
+      decision,
+    );
+    const label = decision === "approve" ? `Approved: ${gate.title}` : `Paused: ${gate.title}`;
+    await get().sendInput(continuation, { displayContent: label });
+  },
+
+  async sendInput(rawInput, options) {
+    let input = rawInput.trim();
     if (!input || get().isStreaming) return;
+
+    const pending = get().pendingApproval;
+    if (pending && !isAutopilotContinuation(input)) {
+      if (/^(yes|approve|continue|ok|go ahead)$/i.test(input)) {
+        input = buildAutopilotContinuation(
+          pending.gateId,
+          pending.stage as import("@/lib/agent/autopilot-continuation").AutopilotStage,
+          "approve",
+        );
+        set({ pendingApproval: null, autopilotActive: true });
+      } else if (/^(no|reject|stop|pause)$/i.test(input)) {
+        input = buildAutopilotContinuation(
+          pending.gateId,
+          pending.stage as import("@/lib/agent/autopilot-continuation").AutopilotStage,
+          "reject",
+        );
+        set({ pendingApproval: null });
+      }
+    }
+
+    if (isAutopilotContinuation(input)) {
+      const parsed = parseAutopilotContinuation(input);
+      set({
+        autopilotActive: parsed?.decision === "approve",
+        pendingApproval: null,
+      });
+    } else if (pending && /^(no|reject|stop|pause)$/i.test(rawInput.trim())) {
+      set({ autopilotActive: false });
+    }
 
     const userMessage: ChatMessage = {
       id: nextMessageId(),
       role: "user",
-      content: input,
+      content: options?.displayContent ?? input,
       createdAt: Date.now(),
     };
 
@@ -311,6 +477,7 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
       messages: [...state.messages, userMessage, assistantMessage],
       isStreaming: true,
       plan: [],
+      autopilotActive: isAutopilotContinuation(input) || (!input.startsWith("/") && input.length >= 12),
     }));
 
     let buffer = "";
@@ -336,7 +503,6 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           input,
-          mode: state.mode,
           history: trimmedHistory,
           workspace: {
             phase: state.workspace.phase,
@@ -403,6 +569,7 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
           message.id === assistantId ? { ...message, pending: false } : message,
         ),
       }));
+      get().scheduleProjectSave();
     }
   },
 
@@ -522,7 +689,7 @@ function applyEventToStore(
         let nextFocus = state.focus;
         if (isIteration) {
           nextFocus = { kind: "result", result: "iteration" };
-        } else if (state.focus.kind === "briefing") {
+        } else if (state.focus.kind === "none") {
           nextFocus = { kind: "artifact", path: event.artifact.path };
         } else if (state.focus.kind === "result") {
           nextFocus = state.focus;
@@ -557,19 +724,81 @@ function applyEventToStore(
     case "probe_summary":
       set((state) => ({
         probeSummary: event.summary,
+        probeSummaries: [...state.probeSummaries.filter((s) => s.weaknessTitle !== event.summary.weaknessTitle), event.summary],
         resultsAvailable: { ...state.resultsAvailable, probe: true },
+        resultTimestamps: { ...state.resultTimestamps, probe: Date.now() },
         focus: { kind: "result", result: "probe" },
+      }));
+      break;
+
+    case "probe_batch_summary":
+      set((state) => ({
+        probeSummaries: event.summaries,
+        probeSummary: event.summaries[0] ?? state.probeSummary,
+        resultsAvailable: { ...state.resultsAvailable, probe: true },
+        resultTimestamps: { ...state.resultTimestamps, probe: Date.now() },
+        focus: { kind: "result", result: "probe" },
+      }));
+      break;
+
+    case "weakness_report":
+      set({ weaknessReport: event.report });
+      break;
+
+    case "approval_gate":
+      set({
+        pendingApproval: event.gate,
+        autopilotActive: true,
+        autopilotMessage: event.gate.description,
+      });
+      break;
+
+    case "autopilot_status":
+      set((state) => ({
+        autopilotActive: event.stage === "ready_publish" && !event.awaitingApproval
+          ? false
+          : true,
+        autopilotMessage: event.message ?? null,
+        pendingApproval: event.awaitingApproval ? state.pendingApproval : null,
+      }));
+      break;
+
+    case "decision_report":
+      set({ decisionReport: event.entries });
+      break;
+
+    case "sweep_trial_update":
+      set((state) => ({
+        sweepTrialsLive: [...state.sweepTrialsLive.filter((t) => t.idx !== event.trial.idx), event.trial],
+        resultsAvailable: { ...state.resultsAvailable, sweep: true },
+      }));
+      break;
+
+    case "sweep_error":
+      set((state) => ({
+        notices: [
+          ...state.notices,
+          {
+            id: `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            level: "error",
+            message: event.message,
+            createdAt: Date.now(),
+          },
+        ],
+        focus: { kind: "result", result: "sweep" },
       }));
       break;
 
     case "sweep_summary":
       set((state) => ({
         sweepSummary: event.summary,
+        sweepTrialsLive: event.summary.trials,
         resultsAvailable: {
           ...state.resultsAvailable,
           sweep: true,
           cascade: !!event.summary.cascade,
         },
+        resultTimestamps: { ...state.resultTimestamps, sweep: Date.now() },
         focus: { kind: "result", result: "sweep" },
       }));
       break;
@@ -579,8 +808,9 @@ function applyEventToStore(
         spoilerFindings: event.findings,
         resultsAvailable: {
           ...state.resultsAvailable,
-          spoilers: event.findings.length > 0,
+          spoilers: true,
         },
+        resultTimestamps: { ...state.resultTimestamps, spoilers: Date.now() },
         focus:
           event.findings.length > 0
             ? ({ kind: "result", result: "spoilers" } as const)
@@ -603,13 +833,14 @@ function applyEventToStore(
       break;
 
     case "publish_open":
-      set({ publishOpen: true });
+      set({ publishOpen: true, autopilotActive: false, pendingApproval: null });
       break;
 
     case "audit":
       set((state) => ({
         audit: event.audit,
         resultsAvailable: { ...state.resultsAvailable, audit: true },
+        resultTimestamps: { ...state.resultTimestamps, audit: Date.now() },
         focus: { kind: "result", result: "audit" },
       }));
       break;

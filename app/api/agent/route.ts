@@ -1,10 +1,15 @@
-import { runScriptedAgent } from "@/lib/agent/scripted-runtime";
 import {
   DEFAULT_TRIALS_PER_VARIANT,
   runLlmAgent,
 } from "@/lib/agent/llm-runtime";
-import { buildDemoWorkspace } from "@/lib/agent/seed-workspace";
-import { defaultAuditorFor } from "@/lib/ai/providers";
+import {
+  isAutopilotContinuation,
+  isAutopilotInput,
+  runAutopilot,
+} from "@/lib/agent/autopilot";
+import { buildEmptyWorkspace } from "@/lib/agent/seed-workspace";
+import { resolveAgentProviders } from "@/lib/ai/providers";
+import { hasLlmApiKey, LIVE_SETUP_MESSAGE } from "@/lib/env/live";
 import type {
   AgentEvent,
   Artifact,
@@ -13,11 +18,10 @@ import type {
 } from "@/lib/agent/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 type RequestBody = {
   input?: string;
-  mode?: "live" | "demo";
   history?: ChatMessage[];
   workspace?: {
     phase?: WorkspaceState["phase"];
@@ -25,28 +29,6 @@ type RequestBody = {
   };
   trialsPerVariant?: number;
 };
-
-function pickDefaultProviders(workspace: WorkspaceState) {
-  const targetModelSlug = workspace.targetModel;
-  let targetProvider: "google" | "anthropic" | "openai" = "google";
-  if (targetModelSlug.startsWith("claude")) targetProvider = "anthropic";
-  else if (targetModelSlug.startsWith("gpt")) targetProvider = "openai";
-  else if (!targetModelSlug.startsWith("google")) targetProvider = "google";
-
-  const auditorSlug = defaultAuditorFor(targetProvider);
-  const auditorProvider: "google" | "anthropic" | "openai" =
-    auditorSlug.startsWith("claude") ? "anthropic" : auditorSlug.startsWith("gpt") ? "openai" : "google";
-
-  return { targetProvider, auditorProvider, auditorSlug };
-}
-
-function hasAnyKey() {
-  return Boolean(
-    process.env.ANTHROPIC_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-  );
-}
 
 export async function POST(request: Request) {
   let body: RequestBody = {};
@@ -56,19 +38,15 @@ export async function POST(request: Request) {
     body = {};
   }
 
-  const workspace = buildDemoWorkspace();
+  const workspace = buildEmptyWorkspace();
   if (body.workspace?.phase) workspace.phase = body.workspace.phase;
   if (body.workspace?.artifacts) {
     for (const artifact of body.workspace.artifacts) {
       workspace.artifacts[artifact.path] = artifact;
     }
   }
-
   const input = (body.input ?? "").toString();
-  const requestedMode = body.mode ?? "live";
-  const liveAvailable = hasAnyKey();
-  const mode: "live" | "demo" = requestedMode === "live" && liveAvailable ? "live" : "demo";
-  const downgraded = requestedMode === "live" && !liveAvailable;
+  const liveAvailable = hasLlmApiKey();
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -80,40 +58,57 @@ export async function POST(request: Request) {
       };
 
       try {
-        if (downgraded) {
+        if (!liveAvailable) {
           send({
             type: "notice",
-            level: "warning",
-            reason: "demo_fallback",
-            message:
-              "No API key found. Falling back to the scripted ds-25 walkthrough. Add ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or OPENAI_API_KEY to .env.local for live mode.",
+            level: "error",
+            reason: "live_setup_required",
+            message: LIVE_SETUP_MESSAGE,
           });
+          send({ type: "error", message: LIVE_SETUP_MESSAGE });
+          send({ type: "done" });
+          return;
         }
 
-        if (mode === "demo") {
-          for await (const event of runScriptedAgent(input, workspace)) {
-            send(event);
-          }
-        } else {
-          const { targetProvider, auditorProvider, auditorSlug } =
-            pickDefaultProviders(workspace);
+        const resolved = resolveAgentProviders(workspace);
+        const useAutopilot = isAutopilotInput(input) || isAutopilotContinuation(input);
 
-          for await (const event of runLlmAgent({
+        if (useAutopilot) {
+          for await (const event of runAutopilot({
             input,
-            history: body.history ?? [],
             workspace,
-            targetProvider,
-            targetModelSlug: workspace.targetModel,
-            judgeProvider: auditorProvider,
-            judgeModelSlug: auditorSlug,
-            scaffoldProvider: auditorProvider,
-            scaffoldModelSlug: auditorSlug,
-            intakeProvider: auditorProvider,
-            intakeModelSlug: auditorSlug,
-            trialsPerVariant: body.trialsPerVariant ?? DEFAULT_TRIALS_PER_VARIANT,
+            bindings: {
+              targetProvider: resolved.targetProvider,
+              targetModelSlug: resolved.targetModelSlug,
+              judgeProvider: resolved.auditorProvider,
+              judgeModelSlug: resolved.auditorSlug,
+              scaffoldProvider: resolved.auditorProvider,
+              scaffoldModelSlug: resolved.auditorSlug,
+              intakeProvider: resolved.auditorProvider,
+              intakeModelSlug: resolved.auditorSlug,
+              trialsPerVariant: body.trialsPerVariant ?? DEFAULT_TRIALS_PER_VARIANT,
+            },
           })) {
             send(event);
           }
+          return;
+        }
+
+        for await (const event of runLlmAgent({
+          input,
+          history: body.history ?? [],
+          workspace,
+          targetProvider: resolved.targetProvider,
+          targetModelSlug: resolved.targetModelSlug,
+          judgeProvider: resolved.auditorProvider,
+          judgeModelSlug: resolved.auditorSlug,
+          scaffoldProvider: resolved.auditorProvider,
+          scaffoldModelSlug: resolved.auditorSlug,
+          intakeProvider: resolved.auditorProvider,
+          intakeModelSlug: resolved.auditorSlug,
+          trialsPerVariant: body.trialsPerVariant ?? DEFAULT_TRIALS_PER_VARIANT,
+        })) {
+          send(event);
         }
       } catch (error) {
         send({

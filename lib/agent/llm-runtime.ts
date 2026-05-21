@@ -13,7 +13,7 @@ import type {
   WorkspaceState,
 } from "./types";
 
-export const DEFAULT_TRIALS_PER_VARIANT = 5;
+export const DEFAULT_TRIALS_PER_VARIANT = 15;
 
 export type LlmAgentOptions = {
   input: string;
@@ -44,7 +44,7 @@ function explainSlashCommand(rawInput: string): string | null {
     case "plan":
       return "Draft a 3-5 step plan first using a <plan>...</plan> block, then proceed step-by-step.";
     case "weakness":
-      return "Call intake_workflow tool first to derive a weakness card from the user's prior description (or ask for one).";
+      return "Call map_workflow_weaknesses tool with the user's workflow description. Do NOT run probe, scaffold, or fixtures in the same turn.";
     case "probe":
       return "Call run_probe_variants tool with the current weakness card. Use the workspace context to fill weaknessTitle, hypothesis, deliverable, badHeuristic, authorityInvariant.";
     case "scaffold":

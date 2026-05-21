@@ -13,7 +13,12 @@
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx lib/db/seed.ts",
     "format": "prettier --write .",
-    "snapshot": "node scripts/snapshot.mjs"
+    "snapshot": "node scripts/snapshot.mjs",
+    "check:env": "node scripts/check-env.mjs",
+    "publish:run": "tsx scripts/run-publish.mjs",
+    "smoke:harbor": "tsx scripts/smoke-harbor.ts",
+    "smoke:pipeline": "node scripts/smoke-pipeline.mjs",
+    "smoke:e2e": "node scripts/e2e-pipeline.mjs"
   },
   "keywords": [],
   "author": "",

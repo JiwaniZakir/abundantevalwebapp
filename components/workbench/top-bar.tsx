@@ -1,75 +1,68 @@
 "use client";
 
-import { ChevronDown, Command, GitBranch, Sparkles } from "lucide-react";
+import { Command, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { useWorkbench } from "@/lib/workbench/store";
+import { LiveEnvStatus } from "./live-env-status";
 import { ModelPicker } from "./model-picker";
-import { ModeToggle } from "./mode-toggle";
-import { SnapshotMenu } from "./snapshot-menu";
-
-function subscribeNoop() {
-  return () => {};
-}
+import { stageForPhase, productStages } from "@/lib/agent/stages";
+import { cn } from "@/lib/utils";
 
 function getIsMac() {
   if (typeof navigator === "undefined") return true;
   return navigator.platform.toUpperCase().includes("MAC");
 }
 
-export function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
+export function TopBar({
+  onOpenPalette,
+  leftOpen,
+  rightOpen,
+  onToggleLeft,
+  onToggleRight,
+}: {
+  onOpenPalette: () => void;
+  leftOpen: boolean;
+  rightOpen: boolean;
+  onToggleLeft: () => void;
+  onToggleRight: () => void;
+}) {
   const workspace = useWorkbench((s) => s.workspace);
   const isStreaming = useWorkbench((s) => s.isStreaming);
-  const setPublishOpen = useWorkbench((s) => s.setPublishOpen);
-  const isMac = useSyncExternalStore(subscribeNoop, getIsMac, () => true);
+  const isMac = useSyncExternalStore(() => () => {}, getIsMac, () => true);
+  const stage = stageForPhase(workspace.phase);
+  const stageMeta = productStages.find((s) => s.id === stage);
 
   return (
-    <header className="flex h-12 items-center justify-between border-b border-[var(--hairline)] bg-[var(--paper)]/85 px-5 backdrop-blur-xl">
-      <div className="flex items-center gap-3">
-        <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-[var(--ink)] text-[var(--paper-pure)]">
-          <span className="serif text-[14px] font-semibold leading-none">H</span>
-        </div>
-        <div className="flex items-baseline gap-3">
-          <span className="text-[13.5px] font-semibold tracking-[-0.01em]">
-            Harbor Eval Studio
-          </span>
-          <span className="text-[var(--ink-faded)]">·</span>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-[12px] text-[var(--ink-muted)] hover:text-[var(--ink)]"
-          >
-            {workspace.projectName}
-            <ChevronDown className="h-3 w-3" />
-          </button>
-        </div>
-      </div>
+    <header className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border)] px-4 bg-[var(--bg)]">
+      <div className="flex items-center gap-3 min-w-0">
+        <button type="button" onClick={onToggleLeft} aria-label="Toggle files" className="rounded-md p-1.5 text-[var(--fg-muted)] hover:text-[var(--fg-secondary)] hover:bg-[var(--bg-hover)] transition-colors">
+          {leftOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+        </button>
 
-      <div className="flex items-center gap-2.5">
+        <div className="min-w-0">
+          <p className="text-title truncate">{workspace.projectName}</p>
+          <p className="text-micro text-[var(--fg-muted)] truncate">{stageMeta?.label ?? "Intake"}</p>
+        </div>
+
         {isStreaming && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--hairline)] bg-[var(--paper-pure)] px-2.5 py-1 text-[11px] text-[var(--ink)]">
-            <Sparkles className="h-3 w-3" />
-            orchestrator thinking
+          <span className="hidden sm:flex items-center gap-1.5 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-micro font-medium text-[var(--accent)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+            Running
           </span>
         )}
+      </div>
+
+      <div className="flex items-center gap-2">
         <ModelPicker />
-        <ModeToggle />
-        <button
-          type="button"
-          onClick={() => setPublishOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--hairline-strong)] bg-[var(--paper-pure)] px-3 py-1.5 text-[11.5px] text-[var(--ink-soft)] hover:bg-[var(--cream-soft)] hover:text-[var(--ink)]"
-        >
-          <GitBranch className="h-3.5 w-3.5" />
-          Publish
+        <LiveEnvStatus />
+
+        <button type="button" onClick={onToggleRight} aria-label="Toggle studio" className="rounded-md p-1.5 text-[var(--fg-muted)] hover:text-[var(--fg-secondary)] hover:bg-[var(--bg-hover)] transition-colors">
+          {rightOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
         </button>
-        <SnapshotMenu />
-        <button
-          type="button"
-          onClick={onOpenPalette}
-          className="inline-flex items-center gap-2 rounded-full border border-[var(--hairline-strong)] bg-[var(--paper-pure)] px-3 py-1.5 text-[11.5px] text-[var(--ink-muted)] hover:bg-[var(--paper)]"
-        >
+
+        <button type="button" onClick={onOpenPalette} className={cn("flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-micro text-[var(--fg-muted)] hover:bg-[var(--bg-hover)] transition-colors")}>
           <Command className="h-3.5 w-3.5" />
-          <span>Run command</span>
-          <span className="kbd">{isMac ? "⌘" : "Ctrl"}</span>
-          <span className="kbd">K</span>
+          <span className="mono">{isMac ? "⌘K" : "^K"}</span>
         </button>
       </div>
     </header>

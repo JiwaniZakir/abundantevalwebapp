@@ -205,3 +205,45 @@ export async function runProbeSweep({
     aggregateFailureRate: aggregate,
   };
 }
+
+export type WeaknessCandidateInput = {
+  slug: string;
+  weaknessTitle: string;
+  deliverable: string;
+  badHeuristic: string;
+  authorityInvariant: string;
+  authorityArtifacts?: string[];
+};
+
+const BATCH_PROBE_CONCURRENCY = 2;
+
+export async function runBatchProbeSweep(
+  candidates: WeaknessCandidateInput[],
+  options: Omit<
+    Parameters<typeof runProbeSweep>[0],
+    | "weaknessTitle"
+    | "deliverable"
+    | "badHeuristic"
+    | "authorityInvariant"
+    | "authorityArtifacts"
+  >,
+): Promise<ProbeSummary[]> {
+  const summaries: ProbeSummary[] = [];
+  for (let i = 0; i < candidates.length; i += BATCH_PROBE_CONCURRENCY) {
+    const batch = candidates.slice(i, i + BATCH_PROBE_CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map((c) =>
+        runProbeSweep({
+          ...options,
+          weaknessTitle: c.weaknessTitle,
+          deliverable: c.deliverable,
+          badHeuristic: c.badHeuristic,
+          authorityInvariant: c.authorityInvariant,
+          authorityArtifacts: c.authorityArtifacts ?? [],
+        }),
+      ),
+    );
+    summaries.push(...batchResults);
+  }
+  return summaries;
+}
