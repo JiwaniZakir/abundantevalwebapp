@@ -79,7 +79,10 @@ export async function runHarborTrial({
 
 function inferRunPath(output: string, logsDir: string) {
   const match = output.match(/logs\/[^\s"']+/);
-  return match ? path.resolve(match[0]) : path.resolve(logsDir);
+  const base = process.cwd();
+  return match
+    ? /* turbopackIgnore: true */ path.join(base, match[0])
+    : /* turbopackIgnore: true */ path.join(base, logsDir);
 }
 
 async function readReward(runPath: string) {

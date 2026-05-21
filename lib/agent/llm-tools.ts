@@ -98,7 +98,7 @@ export function buildLlmTools(bindings: ToolBindings) {
 
     write_artifact: tool({
       description:
-        "Create or overwrite an artifact. Use realistic file content — no failure-mode jargon, no expected answers, no recipe sentences.",
+        "Create or overwrite an artifact. Use realistic file content — no failure-mode jargon, no expected answers, no recipe sentences. Spoiler lint runs automatically on instruction/policy artifacts.",
       inputSchema: z.object({
         path: z.string(),
         content: z.string(),
@@ -115,6 +115,37 @@ export function buildLlmTools(bindings: ToolBindings) {
           dirty: true,
         };
         applyArtifact(bindings, artifact);
+
+        const shouldAutoLint =
+          artifactPath === "instruction.md" ||
+          artifactPath.startsWith("policy/") ||
+          artifactPath.endsWith(".pdf.txt");
+
+        if (shouldAutoLint) {
+          try {
+            const findings = await lintSpoilersHybrid({
+              artifactPath: artifact.path,
+              content: artifact.content,
+              auditorProvider: bindings.judgeProvider,
+              auditorModelSlug: bindings.judgeModelSlug,
+            });
+            bindings.channel.push({ type: "spoiler_findings", findings });
+            return {
+              ok: true,
+              path: artifactPath,
+              bytes: content.length,
+              autoLint: { findings: findings.length },
+            };
+          } catch (error) {
+            bindings.channel.push({
+              type: "notice",
+              level: "warning",
+              message: `Auto-lint failed for ${artifactPath}: ${error instanceof Error ? error.message : String(error)}`,
+              reason: "autolint_failure",
+            });
+          }
+        }
+
         return { ok: true, path: artifactPath, bytes: content.length };
       },
     }),

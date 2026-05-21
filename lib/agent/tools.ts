@@ -2,7 +2,6 @@ import { lintSpoilers } from "@/lib/ai/spoiler-lint";
 import { auditTrajectoryHeuristically } from "@/lib/ai/trajectory-audit";
 import { createFixtureManifest } from "@/lib/fixtures/generators";
 import {
-  ds25DependencyEdges,
   ds25DependencyNodes,
   ds25Project,
 } from "@/lib/domain/ds25-seed";
@@ -318,4 +317,3 @@ export function executeSetPhase(
   };
 }
 
-export const dependencyEdgesForDemo = ds25DependencyEdges;

@@ -13,6 +13,8 @@ import type {
   WorkspaceState,
 } from "./types";
 
+export const DEFAULT_TRIALS_PER_VARIANT = 5;
+
 export type LlmAgentOptions = {
   input: string;
   history: ChatMessage[];
@@ -32,6 +34,43 @@ function plannerHeadline(workspace: WorkspaceState): string {
   const stage = stageForPhase(workspace.phase);
   const ctx = stageContexts[stage];
   return `Active stage: ${ctx.stage}. ${ctx.headline} ${ctx.hint}`;
+}
+
+function explainSlashCommand(rawInput: string): string | null {
+  const trimmed = rawInput.trim();
+  if (!trimmed.startsWith("/")) return null;
+  const [head, ...rest] = trimmed.slice(1).split(/\s+/);
+  switch (head) {
+    case "plan":
+      return "Draft a 3-5 step plan first using a <plan>...</plan> block, then proceed step-by-step.";
+    case "weakness":
+      return "Call intake_workflow tool first to derive a weakness card from the user's prior description (or ask for one).";
+    case "probe":
+      return "Call run_probe_variants tool with the current weakness card. Use the workspace context to fill weaknessTitle, hypothesis, deliverable, badHeuristic, authorityInvariant.";
+    case "scaffold":
+      return "Call scaffold_task tool to emit the Harbor task pack files. Use the active weakness card and intake context for inputs.";
+    case "fixtures":
+      return "Call generate_fixtures tool to synthesize multimodal fixtures and write them under environment/data.";
+    case "sweep": {
+      const target = rest[0]?.toLowerCase();
+      if (target === "oracle" || target === "nop" || target === "target") {
+        return `Call run_harbor_sweep tool with agent=${target}. Materialize the workspace first if needed.`;
+      }
+      return "Call run_harbor_sweep tool. Default agent to oracle if not specified.";
+    }
+    case "lint": {
+      const path = rest.join(" ") || "instruction.md";
+      return `Call lint_spoilers tool with artifactPath="${path}".`;
+    }
+    case "audit":
+      return "Call audit_trajectory tool with the most recent failing trajectory text.";
+    case "iterate":
+      return "Call propose_iteration tool with a before/after pair targeting the most spoiler-laden artifact.";
+    case "publish":
+      return "Tell the user you're opening the publish dialog and call set_phase tool with phase=publish. The UI will surface the GitHub publish dialog separately.";
+    default:
+      return null;
+  }
 }
 
 function deriveHistory(history: ChatMessage[]) {
@@ -73,13 +112,14 @@ export async function* runLlmAgent(
     scaffoldModelSlug: options.scaffoldModelSlug,
     intakeProvider: options.intakeProvider,
     intakeModelSlug: options.intakeModelSlug,
-    trialsPerVariant: options.trialsPerVariant ?? 5,
+    trialsPerVariant: options.trialsPerVariant ?? DEFAULT_TRIALS_PER_VARIANT,
   });
 
   const messages = deriveHistory(options.history);
   messages.push({ role: "user", content: options.input });
 
-  const contextualSystem = `${systemPrompt}\n\nWorkbench context: ${plannerHeadline(options.workspace)}\nKnown artifacts: ${Object.keys(options.workspace.artifacts).join(", ") || "(empty)"}.`;
+  const slashGuidance = explainSlashCommand(options.input);
+  const contextualSystem = `${systemPrompt}\n\nWorkbench context: ${plannerHeadline(options.workspace)}\nKnown artifacts: ${Object.keys(options.workspace.artifacts).join(", ") || "(empty)"}.${slashGuidance ? `\n\nUser invoked a slash command. ${slashGuidance}` : ""}`;
 
   const accumulatedText: { value: string } = { value: "" };
   const toolStartTimes = new Map<string, number>();
@@ -178,6 +218,9 @@ export async function* runLlmAgent(
       }
 
       maybeEmitPlan(channel, accumulatedText.value);
+      if (options.input.trim().toLowerCase().startsWith("/publish")) {
+        channel.push({ type: "publish_open" });
+      }
       channel.push({ type: "done" });
     } catch (error) {
       channel.push({

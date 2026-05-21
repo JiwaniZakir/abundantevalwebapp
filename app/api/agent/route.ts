@@ -1,5 +1,8 @@
 import { runScriptedAgent } from "@/lib/agent/scripted-runtime";
-import { runLlmAgent } from "@/lib/agent/llm-runtime";
+import {
+  DEFAULT_TRIALS_PER_VARIANT,
+  runLlmAgent,
+} from "@/lib/agent/llm-runtime";
 import { buildDemoWorkspace } from "@/lib/agent/seed-workspace";
 import { defaultAuditorFor } from "@/lib/ai/providers";
 import type {
@@ -20,6 +23,7 @@ type RequestBody = {
     phase?: WorkspaceState["phase"];
     artifacts?: Artifact[];
   };
+  trialsPerVariant?: number;
 };
 
 function pickDefaultProviders(workspace: WorkspaceState) {
@@ -106,7 +110,7 @@ export async function POST(request: Request) {
             scaffoldModelSlug: auditorSlug,
             intakeProvider: auditorProvider,
             intakeModelSlug: auditorSlug,
-            trialsPerVariant: 4,
+            trialsPerVariant: body.trialsPerVariant ?? DEFAULT_TRIALS_PER_VARIANT,
           })) {
             send(event);
           }

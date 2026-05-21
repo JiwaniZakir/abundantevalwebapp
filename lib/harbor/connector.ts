@@ -175,16 +175,21 @@ export async function* publishTaskPack(
       return;
     }
 
+    const owner = process.env.HARBOR_PUBLISH_OWNER?.trim();
+    const repoTarget = owner ? `${owner}/${slug}` : slug;
+
     yield {
       kind: "status",
       stage: "gh-create",
-      message: `Creating GitHub repo (${visibility})`,
+      message: owner
+        ? `Creating GitHub repo (${visibility}) at ${repoTarget}`
+        : `Creating GitHub repo (${visibility})`,
     };
 
     const repoArgs = [
       "repo",
       "create",
-      slug,
+      repoTarget,
       visibility === "public" ? "--public" : "--private",
       "--source=.",
       "--remote=origin",
