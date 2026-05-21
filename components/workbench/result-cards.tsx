@@ -74,11 +74,47 @@ function PanelChrome({
   );
 }
 
+function EmptyResultCard({
+  eyebrow,
+  title,
+  hint,
+  action,
+}: {
+  eyebrow: string;
+  title: string;
+  hint: string;
+  action?: { label: string; onClick: () => void };
+}) {
+  return (
+    <PanelChrome eyebrow={eyebrow} title={title}>
+      <div className="rounded-2xl border border-dashed border-[var(--hairline-strong)] bg-[var(--paper)] p-8 text-center">
+        <p className="text-[13.5px] leading-7 text-[var(--ink-muted)]">{hint}</p>
+        {action && (
+          <button
+            type="button"
+            onClick={action.onClick}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-4 py-2 text-[12.5px] font-medium text-[var(--paper-pure)] hover:bg-[var(--ink-soft)]"
+          >
+            {action.label}
+          </button>
+        )}
+      </div>
+    </PanelChrome>
+  );
+}
+
 export function ProbeResultCard() {
   const summary = useWorkbench((s) => s.probeSummary);
   const sendInput = useWorkbench((s) => s.sendInput);
   if (!summary) {
-    return null;
+    return (
+      <EmptyResultCard
+        eyebrow="Probe verdict"
+        title="No probe results yet"
+        hint="Run /probe in the chat to pressure the current weakness card with 5 variants."
+        action={{ label: "Run /probe", onClick: () => void sendInput("/probe") }}
+      />
+    );
   }
 
   const verdictTone: Record<typeof summary.verdict, "green" | "amber" | "red"> = {
@@ -181,7 +217,16 @@ export function SweepResultCard() {
   const sendInput = useWorkbench((s) => s.sendInput);
   const cascadeAvailable = useWorkbench((s) => s.resultsAvailable.cascade);
 
-  if (!summary) return null;
+  if (!summary) {
+    return (
+      <EmptyResultCard
+        eyebrow="Harbor sweep"
+        title="No sweep streamed yet"
+        hint="Run /sweep oracle, /sweep nop, or /sweep target to stream trial telemetry from Harbor."
+        action={{ label: "Run /sweep target", onClick: () => void sendInput("/sweep target") }}
+      />
+    );
+  }
 
   const passes = summary.trials.filter((t) => t.status === "passed").length;
   const tone = passes === 0 ? "red" : passes < summary.trials.length ? "amber" : "green";
@@ -276,8 +321,25 @@ const cascadeTone: Record<string, string> = {
 export function CascadeInsightCard() {
   const summary = useWorkbench((s) => s.sweepSummary);
   const sendInput = useWorkbench((s) => s.sendInput);
-  if (!summary?.cascade) return null;
+  const setFocus = useWorkbench((s) => s.setFocus);
+  if (!summary?.cascade || summary.cascade.length === 0) {
+    return (
+      <EmptyResultCard
+        eyebrow="Why the task is hard"
+        title="No cascade for this workflow"
+        hint="Cascade insight is workflow-specific. The current sweep didn't emit a dependency graph; run /sweep target on a graph-heavy task (e.g. ds-25 compliance release) or audit the failure trajectory directly."
+        action={{
+          label: "View audit instead",
+          onClick: () => {
+            void sendInput("/audit");
+            setFocus({ kind: "result", result: "audit" });
+          },
+        }}
+      />
+    );
+  }
   const nodes = summary.cascade;
+  const isDs25 = nodes.some((node) => node.id.startsWith("CERT-") || node.id.startsWith("LAB-"));
 
   return (
     <PanelChrome
@@ -307,22 +369,24 @@ export function CascadeInsightCard() {
           ))}
         </div>
 
-        <div>
-          <p className="eyebrow mb-3">Trace</p>
-          <div className="flex flex-wrap gap-2">
-            {ds25DependencyEdges.map(([from, to], index) => (
-              <motion.span
-                key={`${from}-${to}`}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 + index * 0.04 }}
-                className="mono inline-flex items-center gap-2 rounded-full border border-[var(--hairline)] bg-[var(--paper-pure)] px-3 py-1 text-[11px] text-[var(--ink-muted)]"
-              >
-                {from} <ArrowRight className="h-3 w-3" /> {to}
-              </motion.span>
-            ))}
+        {isDs25 && (
+          <div>
+            <p className="eyebrow mb-3">Trace</p>
+            <div className="flex flex-wrap gap-2">
+              {ds25DependencyEdges.map(([from, to], index) => (
+                <motion.span
+                  key={`${from}-${to}`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 + index * 0.04 }}
+                  className="mono inline-flex items-center gap-2 rounded-full border border-[var(--hairline)] bg-[var(--paper-pure)] px-3 py-1 text-[11px] text-[var(--ink-muted)]"
+                >
+                  {from} <ArrowRight className="h-3 w-3" /> {to}
+                </motion.span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <NextStepNudge
           label="Audit the failure officially"
@@ -337,7 +401,16 @@ export function CascadeInsightCard() {
 export function AuditCard() {
   const audit = useWorkbench((s) => s.audit);
   const sendInput = useWorkbench((s) => s.sendInput);
-  if (!audit) return null;
+  if (!audit) {
+    return (
+      <EmptyResultCard
+        eyebrow="Trajectory audit"
+        title="No audit yet"
+        hint="Run /audit after a target sweep to classify the failure with the non-target auditor model."
+        action={{ label: "Run /audit", onClick: () => void sendInput("/audit") }}
+      />
+    );
+  }
 
   return (
     <PanelChrome
@@ -464,9 +537,17 @@ export function IterationDiffCard() {
   const setPublishOpen = useWorkbench((s) => s.setPublishOpen);
   const applyIteration = useWorkbench((s) => s.applyIteration);
   const openArtifact = useWorkbench((s) => s.openArtifact);
+  const sendInput = useWorkbench((s) => s.sendInput);
   const artifact = latestPath ? workspace.artifacts[latestPath] : undefined;
   if (!artifact) {
-    return null;
+    return (
+      <EmptyResultCard
+        eyebrow="Iteration proposal"
+        title="No iteration drafted"
+        hint="Run /iterate to propose a diff against a bait artifact based on the audit verdict."
+        action={{ label: "Run /iterate", onClick: () => void sendInput("/iterate") }}
+      />
+    );
   }
 
   const parsed = parseIterationDiff(artifact.content);

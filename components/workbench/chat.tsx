@@ -442,7 +442,7 @@ export function Chat() {
   }, [messages]);
 
   return (
-    <aside className="flex h-full w-[420px] shrink-0 flex-col border-l border-[var(--hairline)] bg-[var(--cream)]">
+    <aside className="flex h-full w-full shrink-0 flex-col border-l border-[var(--hairline)] bg-[var(--cream)] sm:w-[380px] lg:w-[420px]">
       <StageHeader />
       <PlanStrip />
 

@@ -18,7 +18,7 @@ export function Sidebar() {
   const stageIndex = productStages.findIndex((stage) => stage.id === currentStage);
 
   return (
-    <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-[var(--hairline)] bg-[var(--cream)]">
+    <aside className="hidden h-full w-[240px] shrink-0 flex-col border-r border-[var(--hairline)] bg-[var(--cream)] lg:flex">
       <div className="px-5 pt-6 pb-5">
         <p className="eyebrow">Project</p>
         <div className="mt-2 flex items-start gap-2.5">
