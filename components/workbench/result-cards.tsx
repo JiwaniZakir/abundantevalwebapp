@@ -372,7 +372,7 @@ export function AuditCard() {
 export function IterationDiffCard() {
   const workspace = useWorkbench((s) => s.workspace);
   const latestPath = useWorkbench((s) => s.latestIterationPath);
-  const sendInput = useWorkbench((s) => s.sendInput);
+  const setPublishOpen = useWorkbench((s) => s.setPublishOpen);
   const artifact = latestPath ? workspace.artifacts[latestPath] : undefined;
   if (!artifact) {
     return null;
@@ -387,7 +387,7 @@ export function IterationDiffCard() {
       trailing={
         <button
           type="button"
-          onClick={() => void sendInput("/publish")}
+          onClick={() => setPublishOpen(true)}
           className="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3 py-1.5 text-[11.5px] font-medium text-[var(--paper-pure)] transition-colors hover:bg-[var(--ink-soft)]"
         >
           <CheckCircle2 className="h-3 w-3" /> Accept and publish

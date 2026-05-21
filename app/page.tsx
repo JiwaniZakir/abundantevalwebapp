@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Chat } from "@/components/workbench/chat";
 import { CommandPalette } from "@/components/workbench/command-palette";
+import { EnvBanner } from "@/components/workbench/env-banner";
 import { FocusSurface } from "@/components/workbench/focus-surface";
+import { PublishDialog } from "@/components/workbench/publish-dialog";
 import { Sidebar } from "@/components/workbench/sidebar";
 import { TaskPackDrawer } from "@/components/workbench/task-pack-drawer";
 import { TopBar } from "@/components/workbench/top-bar";
@@ -28,6 +30,7 @@ export default function WorkbenchPage() {
   return (
     <div className="flex h-screen flex-col bg-[var(--cream)]">
       <TopBar onOpenPalette={openPalette} />
+      <EnvBanner />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
         <FocusSurface />
@@ -35,6 +38,7 @@ export default function WorkbenchPage() {
       </div>
       <CommandPalette open={paletteOpen} onClose={closePalette} />
       <TaskPackDrawer />
+      <PublishDialog />
     </div>
   );
 }

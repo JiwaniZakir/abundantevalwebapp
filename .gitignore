@@ -23,5 +23,8 @@ logs
 # drizzle scratch
 drizzle/meta/_journal.json.tmp
 
+# typescript build cache
+*.tsbuildinfo
+
 # generated harbor scratch
 .harbor-out

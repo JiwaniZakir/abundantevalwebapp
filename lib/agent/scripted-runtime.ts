@@ -518,7 +518,7 @@ function runTool(
   }
 }
 
-export async function* runAgent(
+export async function* runScriptedAgent(
   input: string,
   initialWorkspace?: WorkspaceState,
 ): AsyncGenerator<AgentEvent> {

@@ -23,6 +23,15 @@ export type FocusTarget =
 
 export type ResultSurface = "probe" | "sweep" | "cascade" | "audit" | "iteration";
 
+export type RuntimeMode = "live" | "demo";
+
+export type EnvStatus = {
+  anthropic: boolean;
+  openai: boolean;
+  google: boolean;
+  publishOwner: string | null;
+};
+
 type WorkbenchState = {
   workspace: WorkspaceState;
   messages: ChatMessage[];
@@ -30,6 +39,9 @@ type WorkbenchState = {
   recentArtifacts: string[];
   isStreaming: boolean;
   taskPackOpen: boolean;
+  publishOpen: boolean;
+  mode: RuntimeMode;
+  envStatus: EnvStatus | null;
   resultsAvailable: Record<ResultSurface, boolean>;
   probeSummary?: ProbeSummary;
   sweepSummary?: SweepSummary;
@@ -41,6 +53,9 @@ type WorkbenchState = {
   setFocus: (focus: FocusTarget) => void;
   openArtifact: (path: string) => void;
   setTaskPackOpen: (open: boolean) => void;
+  setPublishOpen: (open: boolean) => void;
+  setMode: (mode: RuntimeMode) => void;
+  setEnvStatus: (status: EnvStatus) => void;
 
   sendInput: (input: string) => Promise<void>;
   resetDemo: () => void;
@@ -91,6 +106,9 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
   recentArtifacts: ["instruction.md"],
   isStreaming: false,
   taskPackOpen: false,
+  publishOpen: false,
+  mode: "live",
+  envStatus: null,
   resultsAvailable: {
     probe: false,
     sweep: false,
@@ -115,6 +133,24 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
 
   setTaskPackOpen(open) {
     set({ taskPackOpen: open });
+  },
+
+  setPublishOpen(open) {
+    set({ publishOpen: open });
+  },
+
+  setMode(mode) {
+    set({ mode });
+  },
+
+  setEnvStatus(envStatus) {
+    set((state) => {
+      const anyKey = envStatus.anthropic || envStatus.openai || envStatus.google;
+      return {
+        envStatus,
+        mode: state.mode === "live" && !anyKey ? "demo" : state.mode,
+      };
+    });
   },
 
   resetDemo() {
@@ -170,10 +206,26 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
     let buffer = "";
 
     try {
+      const state = get();
+      const trimmedHistory = state.messages.slice(-12).map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+      }));
+
       const response = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input }),
+        body: JSON.stringify({
+          input,
+          mode: state.mode,
+          history: trimmedHistory,
+          workspace: {
+            phase: state.workspace.phase,
+            artifacts: Object.values(state.workspace.artifacts),
+          },
+        }),
       });
 
       if (!response.body) {

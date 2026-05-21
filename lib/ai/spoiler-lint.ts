@@ -1,4 +1,6 @@
+import { generateObject } from "ai";
 import { z } from "zod";
+import { getAiModel } from "./providers";
 
 export const spoilerFindingSchema = z.object({
   artifactPath: z.string(),
@@ -76,4 +78,97 @@ export function lintSpoilers({
   });
 
   return findings;
+}
+
+const llmFindingsSchema = z.object({
+  findings: z.array(
+    z.object({
+      line: z.number().int().min(1),
+      severity: z.enum(["low", "medium", "high"]),
+      ruleId: z.string(),
+      message: z.string(),
+    }),
+  ),
+});
+
+const llmSystemPrompt = `You scan agent-visible eval artifacts for spoilers.
+
+Flag, with line numbers:
+- Direct negation that names the trap ("do not ...", "don't ...").
+- Trap-family names ("recency trap", "phantom join", "revocation cascade").
+- Self-incriminating bait (e.g. "assumed 5", "default 12", "(newer valid_from)", "not consulted").
+- Recipe sentences that double as verifier pseudocode.
+- Expected-answer file paths in agent-visible directories.
+
+Use line numbers 1-indexed against the artifact body. Severity: high (trap names, expected answers), medium (recipe sentences, bait labels), low (mild hints).`;
+
+export async function lintSpoilersWithLlm({
+  artifactPath,
+  content,
+  auditorProvider,
+  auditorModelSlug,
+}: {
+  artifactPath: string;
+  content: string;
+  auditorProvider: string;
+  auditorModelSlug: string;
+}): Promise<SpoilerFinding[]> {
+  if (content.trim().length === 0) return [];
+
+  const numbered = content
+    .split(/\r?\n/)
+    .map((line, index) => `${index + 1}: ${line}`)
+    .join("\n");
+
+  const result = await generateObject({
+    model: getAiModel(auditorProvider, auditorModelSlug),
+    schema: llmFindingsSchema,
+    system: llmSystemPrompt,
+    prompt: `Artifact path: ${artifactPath}\nNumbered artifact body:\n"""\n${numbered.slice(0, 8000)}\n"""\n\nReturn findings as JSON.`,
+  });
+
+  return result.object.findings.map((finding) => ({
+    artifactPath,
+    line: finding.line,
+    severity: finding.severity,
+    ruleId: `llm:${finding.ruleId}`,
+    message: finding.message,
+  }));
+}
+
+export async function lintSpoilersHybrid({
+  artifactPath,
+  content,
+  auditorProvider,
+  auditorModelSlug,
+}: {
+  artifactPath: string;
+  content: string;
+  auditorProvider?: string;
+  auditorModelSlug?: string;
+}): Promise<SpoilerFinding[]> {
+  const regexFindings = lintSpoilers({ artifactPath, content });
+  if (!auditorProvider || !auditorModelSlug) {
+    return regexFindings;
+  }
+
+  let llmFindings: SpoilerFinding[] = [];
+  try {
+    llmFindings = await lintSpoilersWithLlm({
+      artifactPath,
+      content,
+      auditorProvider,
+      auditorModelSlug,
+    });
+  } catch (error) {
+    console.warn("spoiler-lint llm pass failed", error);
+  }
+
+  const seen = new Set<string>();
+  return [...regexFindings, ...llmFindings].filter((finding) => {
+    const key = `${finding.line}:${finding.ruleId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

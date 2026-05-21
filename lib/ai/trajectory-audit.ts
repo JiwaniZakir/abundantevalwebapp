@@ -1,4 +1,6 @@
+import { generateObject } from "ai";
 import { z } from "zod";
+import { getAiModel } from "./providers";
 
 export const trajectoryAuditSchema = z.object({
   auditorModel: z.string(),
@@ -64,5 +66,53 @@ export function auditTrajectoryHeuristically({
     classification: "ignored_authority_artifact",
     rationale:
       "The trajectory did not show evidence of consulting the required authority artifact before publishing.",
+  };
+}
+
+const llmAuditSchema = z.object({
+  classification: trajectoryAuditSchema.shape.classification,
+  rationale: z
+    .string()
+    .max(360)
+    .describe("Why you classified this trajectory, citing a short excerpt."),
+});
+
+const auditSystemPrompt = `You audit a frontier model's failing Harbor trajectory and classify the root cause.
+
+Classification options:
+- ignored_authority_artifact: the model never opened or consulted the policy/authority artifact.
+- used_prior_work_heuristic: the model trusted a prior workbook, portal export, or convenient shortcut instead of recomputing from authority.
+- format_violation: output structure broke verifier requirements (missing sheets, headers, types).
+- misread_input: the model misinterpreted an input file (wrong column, wrong rows).
+- task_design_bug: the task itself was unverifiable or contradictory.
+- environment_failure: missing files, harness crash, or non-model infrastructure issue.`;
+
+export async function auditTrajectoryWithLlm({
+  targetModel,
+  auditorProvider,
+  auditorModelSlug,
+  trajectoryText,
+}: {
+  targetModel: string;
+  auditorProvider: string;
+  auditorModelSlug: string;
+  trajectoryText: string;
+}): Promise<TrajectoryAudit> {
+  assertAuditorSeparation({
+    targetModel,
+    auditorModel: auditorModelSlug,
+  });
+
+  const result = await generateObject({
+    model: getAiModel(auditorProvider, auditorModelSlug),
+    schema: llmAuditSchema,
+    system: auditSystemPrompt,
+    prompt: `Trajectory excerpt (truncated):\n"""\n${trajectoryText.slice(0, 4000)}\n"""\n\nClassify the failure.`,
+  });
+
+  return {
+    auditorModel: auditorModelSlug,
+    classification: result.object.classification,
+    rationale: result.object.rationale,
   };
 }

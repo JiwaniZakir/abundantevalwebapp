@@ -1,8 +1,10 @@
 "use client";
 
-import { ChevronDown, Command, Sparkles } from "lucide-react";
+import { ChevronDown, Command, GitBranch, Sparkles } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { useWorkbench } from "@/lib/workbench/store";
+import { ModeToggle } from "./mode-toggle";
+import { SnapshotMenu } from "./snapshot-menu";
 
 function subscribeNoop() {
   return () => {};
@@ -16,6 +18,7 @@ function getIsMac() {
 export function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
   const workspace = useWorkbench((s) => s.workspace);
   const isStreaming = useWorkbench((s) => s.isStreaming);
+  const setPublishOpen = useWorkbench((s) => s.setPublishOpen);
   const isMac = useSyncExternalStore(subscribeNoop, getIsMac, () => true);
 
   return (
@@ -46,6 +49,16 @@ export function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
             orchestrator thinking
           </span>
         )}
+        <ModeToggle />
+        <button
+          type="button"
+          onClick={() => setPublishOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--hairline-strong)] bg-[var(--paper-pure)] px-3 py-1.5 text-[11.5px] text-[var(--ink-soft)] hover:bg-[var(--cream-soft)] hover:text-[var(--ink)]"
+        >
+          <GitBranch className="h-3.5 w-3.5" />
+          Publish
+        </button>
+        <SnapshotMenu />
         <button
           type="button"
           onClick={onOpenPalette}
