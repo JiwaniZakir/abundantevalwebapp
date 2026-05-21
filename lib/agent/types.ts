@@ -152,5 +152,6 @@ export type AgentEvent =
       message: string;
       reason?: string;
     }
+  | { type: "publish_open" }
   | { type: "done" }
   | { type: "error"; message: string };

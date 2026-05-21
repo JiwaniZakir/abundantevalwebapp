@@ -30,7 +30,8 @@ type ScenarioStep =
       args: Record<string, unknown>;
       latencyMs?: number;
       narrative?: string;
-    };
+    }
+  | { type: "publish_open"; delayMs?: number };
 
 type Scenario = {
   preface?: string[];
@@ -385,7 +386,7 @@ function buildScenario(input: string, workspace: WorkspaceState): Scenario {
         plan: planFromLabels([
           "Verify oracle/nop sanity",
           "Lock RunConfig lineage",
-          "Freeze task version",
+          "Open publish dialog",
         ]),
         phase: "publish",
         preface: ["Finalizing ds-25 as published-hard."],
@@ -400,8 +401,12 @@ function buildScenario(input: string, workspace: WorkspaceState): Scenario {
             type: "text",
             chunks: [
               "Pass@3 = 0/3, oracle = 1, nop = 0, spoiler lint clean.",
-              " RunConfig + auditor attached. Ready to publish.",
+              " Opening the publish dialog so you can push to GitHub.",
             ],
+          },
+          {
+            type: "publish_open",
+            delayMs: 280,
           },
         ],
       };
@@ -552,6 +557,12 @@ export async function* runScriptedAgent(
         yield { type: "text", delta: word };
       }
       yield { type: "text", delta: "\n\n" };
+      continue;
+    }
+
+    if (step.type === "publish_open") {
+      await delay(step.delayMs ?? 200);
+      yield { type: "publish_open" };
       continue;
     }
 

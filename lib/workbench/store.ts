@@ -74,10 +74,19 @@ type WorkbenchState = {
   setMode: (mode: RuntimeMode) => void;
   setEnvStatus: (status: EnvStatus) => void;
   dismissNotice: (id: string) => void;
+  applyIteration: (input: {
+    diffPath: string;
+    targetPath: string;
+    before: string;
+    after: string;
+  }) => { ok: boolean; reason?: string };
 
   sendInput: (input: string) => Promise<void>;
+  stopStreaming: () => void;
   resetDemo: () => void;
 };
+
+let activeStreamController: AbortController | null = null;
 
 function nextMessageId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -179,6 +188,53 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
     }));
   },
 
+  applyIteration({ diffPath, targetPath, before, after }) {
+    const state = get();
+    const target = state.workspace.artifacts[targetPath];
+    if (!target) {
+      return { ok: false, reason: "target_missing" };
+    }
+    if (!target.content.includes(before)) {
+      return { ok: false, reason: "before_not_found" };
+    }
+    const nextContent = target.content.replace(before, after);
+    const now = Date.now();
+    const updatedTarget: Artifact = {
+      ...target,
+      content: nextContent,
+      updatedAt: now,
+      dirty: true,
+    };
+    const updatedDiff = state.workspace.artifacts[diffPath]
+      ? {
+          ...state.workspace.artifacts[diffPath],
+          badge: "iteration · accepted",
+          updatedAt: now,
+        }
+      : undefined;
+
+    set((s) => ({
+      workspace: {
+        ...s.workspace,
+        artifacts: {
+          ...s.workspace.artifacts,
+          [targetPath]: updatedTarget,
+          ...(updatedDiff ? { [diffPath]: updatedDiff } : {}),
+        },
+      },
+      notices: [
+        ...s.notices,
+        {
+          id: `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          level: "info",
+          message: `Iteration applied to ${targetPath}.`,
+          createdAt: Date.now(),
+        },
+      ],
+    }));
+    return { ok: true };
+  },
+
   resetDemo() {
     set({
       workspace: buildDemoWorkspace(),
@@ -245,6 +301,10 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
           createdAt: message.createdAt,
         }));
 
+      activeStreamController?.abort();
+      const controller = new AbortController();
+      activeStreamController = controller;
+
       const response = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -257,6 +317,7 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
             artifacts: Object.values(state.workspace.artifacts),
           },
         }),
+        signal: controller.signal,
       });
 
       if (!response.body) {
@@ -289,21 +350,27 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
         }
       }
     } catch (error) {
-      console.error("Agent stream failed", error);
+      const aborted = error instanceof DOMException && error.name === "AbortError";
+      if (!aborted) {
+        console.error("Agent stream failed", error);
+      }
       set((state) => ({
         messages: state.messages.map((message) =>
           message.id === assistantId
             ? {
                 ...message,
                 pending: false,
-                content: `${message.content}\n\n_Stream failed: ${
-                  error instanceof Error ? error.message : "unknown error"
-                }_`,
+                content: aborted
+                  ? `${message.content}\n\n_Stream stopped by user._`
+                  : `${message.content}\n\n_Stream failed: ${
+                      error instanceof Error ? error.message : "unknown error"
+                    }_`,
               }
             : message,
         ),
       }));
     } finally {
+      activeStreamController = null;
       set((state) => ({
         isStreaming: false,
         messages: state.messages.map((message) =>
@@ -311,6 +378,10 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
         ),
       }));
     }
+  },
+
+  stopStreaming() {
+    activeStreamController?.abort();
   },
 }));
 
@@ -377,12 +448,25 @@ function applyEventToStore(
         const workspace = applyArtifact(state.workspace, event.artifact);
         const recentArtifacts = pushRecent(state.recentArtifacts, event.artifact.path);
         const isIteration = event.artifact.path.startsWith("iterations/");
+        const userIsBrowsingArtifact =
+          state.focus.kind === "artifact" &&
+          state.focus.path !== event.artifact.path;
+
+        let nextFocus = state.focus;
+        if (isIteration) {
+          nextFocus = { kind: "result", result: "iteration" };
+        } else if (state.focus.kind === "briefing") {
+          nextFocus = { kind: "artifact", path: event.artifact.path };
+        } else if (state.focus.kind === "result") {
+          nextFocus = state.focus;
+        } else if (!userIsBrowsingArtifact) {
+          nextFocus = { kind: "artifact", path: event.artifact.path };
+        }
+
         return {
           workspace,
           recentArtifacts,
-          focus: isIteration
-            ? ({ kind: "result", result: "iteration" } as const)
-            : ({ kind: "artifact", path: event.artifact.path } as const),
+          focus: nextFocus,
           latestIterationPath: isIteration ? event.artifact.path : state.latestIterationPath,
           resultsAvailable: isIteration
             ? { ...state.resultsAvailable, iteration: true }
@@ -449,6 +533,10 @@ function applyEventToStore(
           },
         ],
       }));
+      break;
+
+    case "publish_open":
+      set({ publishOpen: true });
       break;
 
     case "audit":

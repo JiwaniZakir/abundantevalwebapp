@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   CheckCircle2,
@@ -59,6 +59,14 @@ function PublishDialogBody() {
   const [files, setFiles] = useState<string[]>([]);
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      controllerRef.current?.abort();
+    },
+    [],
+  );
 
   const markStage = (
     key: string,
@@ -85,6 +93,10 @@ function PublishDialogBody() {
       ),
     );
 
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     try {
       const response = await fetch("/api/publish", {
         method: "POST",
@@ -99,6 +111,7 @@ function PublishDialogBody() {
             artifacts: Object.values(workspace.artifacts),
           },
         }),
+        signal: controller.signal,
       });
 
       if (!response.body) {
@@ -166,8 +179,12 @@ function PublishDialogBody() {
         }
       }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
+      const aborted = error instanceof DOMException && error.name === "AbortError";
+      if (!aborted) {
+        setErrorMessage(error instanceof Error ? error.message : String(error));
+      }
     } finally {
+      controllerRef.current = null;
       setRunning(false);
     }
   };

@@ -68,6 +68,33 @@ function timestamp() {
     .toLowerCase();
 }
 
+export async function restoreSnapshot(
+  tag: string,
+): Promise<{ tag: string; commitSha: string; clean: boolean }> {
+  if (!/^snapshot\/[a-z0-9-]+/.test(tag)) {
+    throw new Error("Refusing to restore a non-snapshot ref");
+  }
+
+  const status = await runGit(["status", "--porcelain"]);
+  const clean = status.code === 0 && status.stdout.trim().length === 0;
+  if (!clean) {
+    throw new Error("Working tree has uncommitted changes. Create a snapshot first.");
+  }
+
+  const verify = await runGit(["rev-parse", "--verify", tag]);
+  if (verify.code !== 0) {
+    throw new Error(`Snapshot tag not found: ${tag}`);
+  }
+  const commitSha = verify.stdout.trim();
+
+  const reset = await runGit(["reset", "--hard", tag]);
+  if (reset.code !== 0) {
+    throw new Error(`git reset failed: ${reset.stderr.trim()}`);
+  }
+
+  return { tag, commitSha, clean: true };
+}
+
 export async function createSnapshot(label: string): Promise<SnapshotResult> {
   const trimmedLabel = label.trim();
   if (!trimmedLabel) {

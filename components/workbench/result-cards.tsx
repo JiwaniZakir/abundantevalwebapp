@@ -433,14 +433,51 @@ export function SpoilerFindingsCard() {
   );
 }
 
+type AppliedDiff = {
+  targetPath: string | null;
+  before: string | null;
+  after: string | null;
+  rationale: string | null;
+};
+
+function parseIterationDiff(content: string): AppliedDiff {
+  const targetMatch = content.match(/^\+\+\+\s+b\/(.+)$/m);
+  const beforeLines: string[] = [];
+  const afterLines: string[] = [];
+  for (const line of content.split(/\r?\n/)) {
+    if (line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("@@")) continue;
+    if (line.startsWith("- ")) beforeLines.push(line.slice(2));
+    else if (line.startsWith("+ ")) afterLines.push(line.slice(2));
+  }
+  const rationaleMatch = content.match(/Rationale:\s*([\s\S]+?)(?:\n\n|$)/);
+  return {
+    targetPath: targetMatch ? targetMatch[1].trim() : null,
+    before: beforeLines.join("\n") || null,
+    after: afterLines.join("\n") || null,
+    rationale: rationaleMatch ? rationaleMatch[1].trim() : null,
+  };
+}
+
 export function IterationDiffCard() {
   const workspace = useWorkbench((s) => s.workspace);
   const latestPath = useWorkbench((s) => s.latestIterationPath);
   const setPublishOpen = useWorkbench((s) => s.setPublishOpen);
+  const applyIteration = useWorkbench((s) => s.applyIteration);
+  const openArtifact = useWorkbench((s) => s.openArtifact);
   const artifact = latestPath ? workspace.artifacts[latestPath] : undefined;
   if (!artifact) {
     return null;
   }
+
+  const parsed = parseIterationDiff(artifact.content);
+  const targetArtifact = parsed.targetPath
+    ? workspace.artifacts[parsed.targetPath]
+    : null;
+  const canApply = Boolean(parsed.targetPath && parsed.before && parsed.after);
+  const conflict =
+    canApply && targetArtifact
+      ? !targetArtifact.content.includes(parsed.before ?? "__never__")
+      : false;
 
   const lines = artifact.content.split("\n");
 
@@ -449,13 +486,40 @@ export function IterationDiffCard() {
       eyebrow="Iteration proposal"
       title={latestPath ?? "iteration"}
       trailing={
-        <button
-          type="button"
-          onClick={() => setPublishOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3 py-1.5 text-[11.5px] font-medium text-[var(--paper-pure)] transition-colors hover:bg-[var(--ink-soft)]"
-        >
-          <CheckCircle2 className="h-3 w-3" /> Accept and publish
-        </button>
+        <div className="flex items-center gap-2">
+          {canApply && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!parsed.targetPath || parsed.before === null || parsed.after === null) return;
+                const result = applyIteration({
+                  diffPath: latestPath!,
+                  targetPath: parsed.targetPath,
+                  before: parsed.before,
+                  after: parsed.after,
+                });
+                if (result.ok) {
+                  openArtifact(parsed.targetPath);
+                }
+              }}
+              disabled={conflict}
+              title={conflict ? "Target content drifted; manual review required" : undefined}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border border-[var(--hairline-strong)] bg-[var(--paper-pure)] px-3 py-1.5 text-[11.5px] font-medium text-[var(--ink)] transition-colors hover:bg-[var(--cream-soft)]",
+                conflict && "cursor-not-allowed opacity-40",
+              )}
+            >
+              <CheckCircle2 className="h-3 w-3" /> Apply iteration
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setPublishOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-[var(--ink)] px-3 py-1.5 text-[11.5px] font-medium text-[var(--paper-pure)] transition-colors hover:bg-[var(--ink-soft)]"
+          >
+            <CheckCircle2 className="h-3 w-3" /> Accept and publish
+          </button>
+        </div>
       }
     >
       <div className="overflow-hidden rounded-2xl border border-[var(--hairline)] bg-[var(--paper-pure)] shadow-[var(--shadow-soft)]">

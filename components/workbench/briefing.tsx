@@ -70,6 +70,7 @@ export function Briefing() {
   const setFocus = useWorkbench((s) => s.setFocus);
   const setPublishOpen = useWorkbench((s) => s.setPublishOpen);
   const mode = useWorkbench((s) => s.mode);
+  const isStreaming = useWorkbench((s) => s.isStreaming);
   const stage = stageForPhase(workspace.phase);
   const context = stageContexts[stage];
   const stageIndex = productStages.findIndex((s) => s.id === stage);
@@ -170,9 +171,10 @@ export function Briefing() {
           <button
             key={chip.value}
             type="button"
+            disabled={isStreaming}
             onClick={() => void sendInput(chip.value)}
             className={cn(
-              "group flex items-center justify-between gap-4 rounded-2xl border px-5 py-4 text-left transition-all hover:-translate-y-0.5",
+              "group flex items-center justify-between gap-4 rounded-2xl border px-5 py-4 text-left transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0",
               chip.tone === "primary"
                 ? "border-[var(--ink)] bg-[var(--ink)] text-[var(--paper-pure)] hover:bg-[var(--ink-soft)]"
                 : "border-[var(--hairline-strong)] bg-[var(--paper-pure)] text-[var(--ink)] hover:bg-[var(--cream-soft)]",

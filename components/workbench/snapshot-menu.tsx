@@ -2,7 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArchiveRestore, CheckCircle2, History, Loader2, X } from "lucide-react";
+import {
+  ArchiveRestore,
+  CheckCircle2,
+  History,
+  Loader2,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Snapshot = {
@@ -35,6 +42,9 @@ export function SnapshotMenu() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedTag, setSavedTag] = useState<string | null>(null);
+  const [pendingRestore, setPendingRestore] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,6 +63,30 @@ export function SnapshotMenu() {
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
   }, [open]);
+
+  const restoreTag = async (tag: string) => {
+    setRestoring(tag);
+    setRestoreMessage(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/snapshots/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tag }),
+      });
+      const data = (await response.json()) as { ok?: boolean; error?: string; commitSha?: string };
+      if (!response.ok || !data.ok) {
+        setError(data.error ?? "Restore failed");
+        return;
+      }
+      setRestoreMessage(`Restored ${tag.slice(0, 28)}… (${data.commitSha?.slice(0, 7)}). Reload to see changes.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Restore failed");
+    } finally {
+      setRestoring(null);
+      setPendingRestore(null);
+    }
+  };
 
   const saveSnapshot = async () => {
     const trimmed = label.trim();
@@ -158,24 +192,75 @@ export function SnapshotMenu() {
               )}
             </div>
 
+            {restoreMessage && (
+              <div className="border-b border-[var(--hairline)] bg-[var(--status-green-soft)] px-4 py-2 text-[11.5px] text-[var(--status-green)]">
+                {restoreMessage}
+              </div>
+            )}
+
             <div className="max-h-[300px] overflow-y-auto px-2 py-2">
               {snapshots.length === 0 ? (
                 <p className="px-3 py-4 text-[12px] text-[var(--ink-muted)]">
                   No snapshots yet. Label one above to mark a checkpoint.
                 </p>
               ) : (
-                snapshots.map((snapshot) => (
-                  <div
-                    key={snapshot.tag}
-                    className="rounded-lg px-3 py-2 hover:bg-[var(--cream-soft)]"
-                  >
-                    <p className="mono text-[11px] text-[var(--ink)]">{snapshot.tag}</p>
-                    <p className="mt-1 text-[12px] text-[var(--ink-soft)]">{snapshot.subject}</p>
-                    <p className="mono mt-1 text-[10px] text-[var(--ink-faint)]">
-                      {relative(snapshot.createdAt)}
-                    </p>
-                  </div>
-                ))
+                snapshots.map((snapshot) => {
+                  const isPending = pendingRestore === snapshot.tag;
+                  const isRestoring = restoring === snapshot.tag;
+                  return (
+                    <div
+                      key={snapshot.tag}
+                      className="group rounded-lg px-3 py-2 hover:bg-[var(--cream-soft)]"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="mono truncate text-[11px] text-[var(--ink)]">
+                            {snapshot.tag}
+                          </p>
+                          <p className="mt-1 text-[12px] text-[var(--ink-soft)]">
+                            {snapshot.subject}
+                          </p>
+                          <p className="mono mt-1 text-[10px] text-[var(--ink-faint)]">
+                            {relative(snapshot.createdAt)}
+                          </p>
+                        </div>
+                        {!isPending && !isRestoring && (
+                          <button
+                            type="button"
+                            onClick={() => setPendingRestore(snapshot.tag)}
+                            className="inline-flex items-center gap-1 rounded-full border border-[var(--hairline)] bg-[var(--paper-pure)] px-2 py-1 text-[10.5px] text-[var(--ink-muted)] opacity-0 transition-opacity hover:text-[var(--ink)] group-hover:opacity-100"
+                          >
+                            <RotateCcw className="h-3 w-3" /> Restore
+                          </button>
+                        )}
+                        {isRestoring && (
+                          <Loader2 className="mt-1 h-3.5 w-3.5 animate-spin text-[var(--ink-muted)]" />
+                        )}
+                      </div>
+                      {isPending && (
+                        <div className="mt-2 flex items-center justify-end gap-1.5">
+                          <span className="mr-auto text-[11px] text-[var(--ink-muted)]">
+                            Hard reset to this snapshot?
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPendingRestore(null)}
+                            className="rounded-full px-2 py-1 text-[10.5px] text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void restoreTag(snapshot.tag)}
+                            className="rounded-full bg-[var(--ink)] px-2.5 py-1 text-[10.5px] font-medium text-[var(--paper-pure)] hover:bg-[var(--ink-soft)]"
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </motion.div>

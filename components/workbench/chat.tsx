@@ -6,6 +6,7 @@ import {
   Circle,
   Loader2,
   Sparkles,
+  Square,
   User2,
 } from "lucide-react";
 import {
@@ -171,6 +172,7 @@ function Composer() {
   const [value, setValue] = useState("");
   const isStreaming = useWorkbench((s) => s.isStreaming);
   const sendInput = useWorkbench((s) => s.sendInput);
+  const stopStreaming = useWorkbench((s) => s.stopStreaming);
   const phase = useWorkbench((s) => s.workspace.phase);
   const stage = stageForPhase(phase);
   const context = stageContexts[stage];
@@ -247,22 +249,29 @@ function Composer() {
         />
         <div className="flex items-center justify-between gap-2 px-4 pb-3 text-[11px] text-[var(--ink-muted)]">
           <span className="mono">type / for power commands</span>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={isStreaming || !value.trim()}
-            className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 text-[11.5px] font-medium text-[var(--paper-pure)] transition-transform hover:-translate-y-0.5",
-              (isStreaming || !value.trim()) && "opacity-40 hover:translate-y-0",
-            )}
-          >
-            {isStreaming ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
+          {isStreaming ? (
+            <button
+              type="button"
+              onClick={stopStreaming}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--hairline-strong)] bg-[var(--paper-pure)] px-3.5 text-[11.5px] font-medium text-[var(--ink)] transition-transform hover:-translate-y-0.5"
+            >
+              <Square className="h-3 w-3 fill-[var(--ink)]" />
+              Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!value.trim()}
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--ink)] px-3.5 text-[11.5px] font-medium text-[var(--paper-pure)] transition-transform hover:-translate-y-0.5",
+                !value.trim() && "opacity-40 hover:translate-y-0",
+              )}
+            >
               <ArrowUp className="h-3 w-3" />
-            )}
-            Send
-          </button>
+              Send
+            </button>
+          )}
         </div>
       </div>
     </div>
