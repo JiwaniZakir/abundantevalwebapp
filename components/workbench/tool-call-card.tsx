@@ -6,6 +6,7 @@ import {
   Loader2,
   Sparkles,
   Wrench,
+  XCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -17,9 +18,11 @@ const labels: Record<ToolCall["name"], string> = {
   read_artifact: "Read artifact",
   write_artifact: "Write artifact",
   propose_weakness_card: "Promote weakness card",
+  intake_workflow: "Intake workflow",
   run_probe_variants: "Run probe variants",
   lint_spoilers: "Lint spoilers",
   generate_fixtures: "Generate fixtures",
+  scaffold_task: "Scaffold Harbor task pack",
   run_harbor_sweep: "Run Harbor sweep",
   audit_trajectory: "Audit trajectory",
   propose_iteration: "Propose iteration",
@@ -30,6 +33,7 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
   const [open, setOpen] = useState(false);
   const argEntries = Object.entries(call.args);
   const isRunning = call.status === "running";
+  const isFailed = call.status === "failed";
 
   return (
     <motion.div
@@ -38,8 +42,12 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: "spring", stiffness: 320, damping: 30 }}
       className={cn(
-        "overflow-hidden rounded-xl border border-[var(--hairline)] bg-[var(--paper-pure)] shadow-[var(--shadow-soft)]",
-        isRunning && "ring-1 ring-[var(--ink)]/10",
+        "overflow-hidden rounded-xl border bg-[var(--paper-pure)] shadow-[var(--shadow-soft)]",
+        isRunning
+          ? "border-[var(--hairline)] ring-1 ring-[var(--ink)]/10"
+          : isFailed
+            ? "border-[var(--status-red-soft)] ring-1 ring-[var(--status-red)]/20"
+            : "border-[var(--hairline)]",
       )}
     >
       <button
@@ -53,17 +61,21 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
               "flex h-6 w-6 items-center justify-center rounded-lg",
               isRunning
                 ? "bg-[var(--cream-soft)] text-[var(--ink)]"
-                : "bg-[var(--cream)] text-[var(--ink-muted)]",
+                : isFailed
+                  ? "bg-[var(--status-red-soft)] text-[var(--status-red)]"
+                  : "bg-[var(--cream)] text-[var(--ink-muted)]",
             )}
           >
             {isRunning ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isFailed ? (
+              <XCircle className="h-3.5 w-3.5" />
             ) : (
               <Sparkles className="h-3.5 w-3.5" />
             )}
           </span>
           <span className="mono text-[10.5px] uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-            tool
+            {isFailed ? "failed" : "tool"}
           </span>
           <span className="font-medium text-[var(--ink)]">{labels[call.name] ?? call.name}</span>
         </span>

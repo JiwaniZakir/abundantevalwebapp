@@ -125,6 +125,13 @@ export async function* publishTaskPack(
       }
 
       yield { kind: "validation", oracleReward, nopReward };
+
+      if (oracleReward !== 1 || nopReward !== 0) {
+        const reason = `Validation blocked publish: oracle reward = ${oracleReward ?? "?"}, nop reward = ${nopReward ?? "?"}. Required: oracle = 1, nop = 0.`;
+        yield { kind: "error", message: reason };
+        yield { kind: "done" };
+        return;
+      }
     }
 
     yield {

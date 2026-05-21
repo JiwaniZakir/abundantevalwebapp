@@ -18,9 +18,11 @@ export type ToolName =
   | "read_artifact"
   | "write_artifact"
   | "propose_weakness_card"
+  | "intake_workflow"
   | "run_probe_variants"
   | "lint_spoilers"
   | "generate_fixtures"
+  | "scaffold_task"
   | "run_harbor_sweep"
   | "audit_trajectory"
   | "propose_iteration"
@@ -132,11 +134,23 @@ export type AgentEvent =
   | { type: "plan"; plan: PlanStep[] }
   | { type: "text"; delta: string }
   | { type: "tool_call_start"; call: ToolCall }
-  | { type: "tool_call_finish"; id: string; result: unknown; summary?: string }
+  | {
+      type: "tool_call_finish";
+      id: string;
+      result: unknown;
+      summary?: string;
+      status?: ToolCallStatus;
+    }
   | { type: "artifact"; artifact: Artifact }
   | { type: "probe_summary"; summary: ProbeSummary }
   | { type: "sweep_summary"; summary: SweepSummary }
   | { type: "spoiler_findings"; findings: SpoilerFinding[] }
   | { type: "audit"; audit: AuditSummary }
+  | {
+      type: "notice";
+      level: "info" | "warning" | "error";
+      message: string;
+      reason?: string;
+    }
   | { type: "done" }
   | { type: "error"; message: string };

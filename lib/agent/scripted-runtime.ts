@@ -314,7 +314,10 @@ function buildScenario(input: string, workspace: WorkspaceState): Scenario {
           },
           {
             type: "text",
-            chunks: ["Findings rendered in the inspector. Apply /iterate to propose fixes."],
+            chunks: [
+              "Findings opened in the Spoilers result card.",
+              " Apply /iterate to propose fixes for any high-severity entry.",
+            ],
           },
         ],
       };

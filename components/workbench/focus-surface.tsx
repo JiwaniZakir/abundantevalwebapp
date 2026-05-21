@@ -22,6 +22,7 @@ import {
   CascadeInsightCard,
   IterationDiffCard,
   ProbeResultCard,
+  SpoilerFindingsCard,
   SweepResultCard,
 } from "./result-cards";
 
@@ -43,6 +44,7 @@ function breadcrumbForFocus(focus: ReturnType<typeof useWorkbench.getState>["foc
     cascade: "Dependency cascade",
     audit: "Trajectory audit",
     iteration: "Iteration diff",
+    spoilers: "Spoiler lint",
   };
   const icons: Record<ResultSurface, React.ReactNode> = {
     probe: <FlaskConical className="h-3.5 w-3.5" />,
@@ -50,6 +52,7 @@ function breadcrumbForFocus(focus: ReturnType<typeof useWorkbench.getState>["foc
     cascade: <GitBranch className="h-3.5 w-3.5" />,
     audit: <Sparkles className="h-3.5 w-3.5" />,
     iteration: <AlertTriangle className="h-3.5 w-3.5" />,
+    spoilers: <AlertTriangle className="h-3.5 w-3.5" />,
   };
   return { icon: icons[focus.result], label: labels[focus.result] };
 }
@@ -134,6 +137,9 @@ export function FocusSurface() {
             {focus.kind === "result" && focus.result === "audit" && <AuditCard />}
             {focus.kind === "result" && focus.result === "iteration" && (
               <IterationDiffCard />
+            )}
+            {focus.kind === "result" && focus.result === "spoilers" && (
+              <SpoilerFindingsCard />
             )}
           </motion.div>
         </AnimatePresence>

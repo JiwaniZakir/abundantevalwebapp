@@ -109,6 +109,12 @@ export function Briefing() {
       onClick: () => setFocus({ kind: "result", result: "iteration" }),
     });
   }
+  if (results.spoilers) {
+    completedJumps.push({
+      label: "Spoiler findings",
+      onClick: () => setFocus({ kind: "result", result: "spoilers" }),
+    });
+  }
 
   return (
     <section className="mx-auto flex h-full max-w-[760px] flex-col px-10 py-12">

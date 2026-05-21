@@ -5,6 +5,7 @@ import { Chat } from "@/components/workbench/chat";
 import { CommandPalette } from "@/components/workbench/command-palette";
 import { EnvBanner } from "@/components/workbench/env-banner";
 import { FocusSurface } from "@/components/workbench/focus-surface";
+import { NoticeStack } from "@/components/workbench/notice-stack";
 import { PublishDialog } from "@/components/workbench/publish-dialog";
 import { Sidebar } from "@/components/workbench/sidebar";
 import { TaskPackDrawer } from "@/components/workbench/task-pack-drawer";
@@ -39,6 +40,7 @@ export default function WorkbenchPage() {
       <CommandPalette open={paletteOpen} onClose={closePalette} />
       <TaskPackDrawer />
       <PublishDialog />
+      <NoticeStack />
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { motion } from "motion/react";
 import { useWorkbench } from "@/lib/workbench/store";
 import { ds25DependencyEdges } from "@/lib/domain/ds25-seed";
 import { Badge } from "@/components/ui/badge";
+import type { SpoilerFinding } from "@/lib/agent/types";
 import { cn } from "@/lib/utils";
 
 function NextStepNudge({
@@ -365,6 +366,69 @@ export function AuditCard() {
         description="Tighten the bait artifact so the failure mode stays hard after publishing."
         onClick={() => void sendInput("/iterate")}
       />
+    </PanelChrome>
+  );
+}
+
+const severityTone: Record<SpoilerFinding["severity"], "red" | "amber" | "blue"> = {
+  high: "red",
+  medium: "amber",
+  low: "blue",
+};
+
+export function SpoilerFindingsCard() {
+  const findings = useWorkbench((s) => s.spoilerFindings);
+  const openArtifact = useWorkbench((s) => s.openArtifact);
+
+  if (findings.length === 0) {
+    return (
+      <PanelChrome
+        eyebrow="Spoiler lint"
+        title="No findings"
+        trailing={<Badge variant="green">clean</Badge>}
+      >
+        <p className="text-[13.5px] leading-7 text-[var(--ink-muted)]">
+          The most recent lint pass surfaced no recipe sentences, trap names, expected-answer paths,
+          or self-incriminating bait. Re-run /lint after future edits.
+        </p>
+      </PanelChrome>
+    );
+  }
+
+  const high = findings.filter((f) => f.severity === "high").length;
+  const tone = high > 0 ? "red" : "amber";
+
+  return (
+    <PanelChrome
+      eyebrow="Spoiler lint"
+      title={`${findings.length} finding${findings.length === 1 ? "" : "s"}`}
+      trailing={<Badge variant={tone}>{high > 0 ? `${high} high severity` : "review"}</Badge>}
+    >
+      <div className="space-y-2">
+        {findings.map((finding, index) => (
+          <motion.button
+            key={`${finding.artifactPath}-${finding.line}-${index}`}
+            type="button"
+            onClick={() => openArtifact(finding.artifactPath)}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.03 + index * 0.04 }}
+            className="group flex w-full items-start justify-between gap-4 rounded-xl border border-[var(--hairline)] bg-[var(--paper-pure)] p-4 text-left shadow-[var(--shadow-soft)] transition-transform hover:-translate-y-0.5"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 text-[11px] text-[var(--ink-muted)]">
+                <Badge variant={severityTone[finding.severity]}>{finding.severity}</Badge>
+                <span className="mono truncate">{finding.artifactPath}:L{finding.line}</span>
+                <span className="mono text-[var(--ink-faint)]">{finding.ruleId}</span>
+              </span>
+              <span className="mt-2 block text-[13px] leading-6 text-[var(--ink)]">
+                {finding.message}
+              </span>
+            </span>
+            <ArrowRight className="mt-1 h-3.5 w-3.5 text-[var(--ink-faded)] transition-transform group-hover:translate-x-1 group-hover:text-[var(--ink)]" />
+          </motion.button>
+        ))}
+      </div>
     </PanelChrome>
   );
 }

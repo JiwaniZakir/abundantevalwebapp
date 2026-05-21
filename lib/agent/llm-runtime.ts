@@ -9,6 +9,7 @@ import type {
   AgentEvent,
   ChatMessage,
   PlanStep,
+  ToolCall,
   WorkspaceState,
 } from "./types";
 
@@ -110,15 +111,13 @@ export async function* runLlmAgent(
           case "tool-call": {
             const id = part.toolCallId ?? randomUUID();
             toolStartTimes.set(id, Date.now());
+            const rawInput = (part as unknown as { input?: Record<string, unknown> }).input;
             channel.push({
               type: "tool_call_start",
               call: {
                 id,
-                name: part.toolName as never,
-                args:
-                  ((part as unknown as { input?: Record<string, unknown> }).input ??
-                    (part as unknown as { args?: Record<string, unknown> }).args ??
-                    {}) as Record<string, unknown>,
+                name: part.toolName as ToolCall["name"],
+                args: (rawInput ?? {}) as Record<string, unknown>,
                 status: "running",
                 startedAt: toolStartTimes.get(id)!,
               },
@@ -127,9 +126,7 @@ export async function* runLlmAgent(
           }
           case "tool-result": {
             const id = part.toolCallId ?? randomUUID();
-            const rawResult =
-              (part as unknown as { output?: unknown }).output ??
-              (part as unknown as { result?: unknown }).result;
+            const rawResult = (part as unknown as { output?: unknown }).output;
             const summary =
               typeof rawResult === "object" && rawResult !== null && "summary" in (rawResult as Record<string, unknown>)
                 ? String((rawResult as Record<string, unknown>).summary)
@@ -139,6 +136,31 @@ export async function* runLlmAgent(
               id,
               result: rawResult ?? null,
               summary,
+              status: "succeeded",
+            });
+            break;
+          }
+          case "tool-error": {
+            const id = part.toolCallId ?? randomUUID();
+            const errorValue = (part as unknown as { error?: unknown }).error;
+            const message =
+              errorValue instanceof Error
+                ? errorValue.message
+                : typeof errorValue === "string"
+                  ? errorValue
+                  : "tool execution failed";
+            channel.push({
+              type: "tool_call_finish",
+              id,
+              result: { error: message },
+              summary: message.slice(0, 200),
+              status: "failed",
+            });
+            channel.push({
+              type: "notice",
+              level: "error",
+              message: `Tool ${part.toolName ?? "unknown"} failed: ${message}`,
+              reason: "tool_error",
             });
             break;
           }

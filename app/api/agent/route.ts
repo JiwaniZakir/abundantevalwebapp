@@ -62,7 +62,9 @@ export async function POST(request: Request) {
 
   const input = (body.input ?? "").toString();
   const requestedMode = body.mode ?? "live";
-  const mode: "live" | "demo" = requestedMode === "live" && hasAnyKey() ? "live" : "demo";
+  const liveAvailable = hasAnyKey();
+  const mode: "live" | "demo" = requestedMode === "live" && liveAvailable ? "live" : "demo";
+  const downgraded = requestedMode === "live" && !liveAvailable;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -74,6 +76,16 @@ export async function POST(request: Request) {
       };
 
       try {
+        if (downgraded) {
+          send({
+            type: "notice",
+            level: "warning",
+            reason: "demo_fallback",
+            message:
+              "No API key found. Falling back to the scripted ds-25 walkthrough. Add ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or OPENAI_API_KEY to .env.local for live mode.",
+          });
+        }
+
         if (mode === "demo") {
           for await (const event of runScriptedAgent(input, workspace)) {
             send(event);

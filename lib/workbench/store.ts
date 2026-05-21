@@ -21,7 +21,20 @@ export type FocusTarget =
   | { kind: "artifact"; path: string }
   | { kind: "result"; result: ResultSurface };
 
-export type ResultSurface = "probe" | "sweep" | "cascade" | "audit" | "iteration";
+export type ResultSurface =
+  | "probe"
+  | "sweep"
+  | "cascade"
+  | "audit"
+  | "iteration"
+  | "spoilers";
+
+export type Notice = {
+  id: string;
+  level: "info" | "warning" | "error";
+  message: string;
+  createdAt: number;
+};
 
 export type RuntimeMode = "live" | "demo";
 
@@ -29,6 +42,9 @@ export type EnvStatus = {
   anthropic: boolean;
   openai: boolean;
   google: boolean;
+  harborBin: boolean;
+  harborBinName?: string;
+  ghCli: boolean;
   publishOwner: string | null;
 };
 
@@ -49,6 +65,7 @@ type WorkbenchState = {
   audit?: AuditSummary;
   latestIterationPath?: string;
   plan: PlanStep[];
+  notices: Notice[];
 
   setFocus: (focus: FocusTarget) => void;
   openArtifact: (path: string) => void;
@@ -56,6 +73,7 @@ type WorkbenchState = {
   setPublishOpen: (open: boolean) => void;
   setMode: (mode: RuntimeMode) => void;
   setEnvStatus: (status: EnvStatus) => void;
+  dismissNotice: (id: string) => void;
 
   sendInput: (input: string) => Promise<void>;
   resetDemo: () => void;
@@ -115,9 +133,11 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
     cascade: false,
     audit: false,
     iteration: false,
+    spoilers: false,
   },
   spoilerFindings: [],
   plan: [],
+  notices: [],
 
   setFocus(focus) {
     set({ focus });
@@ -153,6 +173,12 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
     });
   },
 
+  dismissNotice(id) {
+    set((state) => ({
+      notices: state.notices.filter((notice) => notice.id !== id),
+    }));
+  },
+
   resetDemo() {
     set({
       workspace: buildDemoWorkspace(),
@@ -166,6 +192,7 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
         cascade: false,
         audit: false,
         iteration: false,
+        spoilers: false,
       },
       probeSummary: undefined,
       sweepSummary: undefined,
@@ -173,6 +200,7 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
       audit: undefined,
       latestIterationPath: undefined,
       plan: [],
+      notices: [],
     });
   },
 
@@ -207,12 +235,15 @@ export const useWorkbench = create<WorkbenchState>((set, get) => ({
 
     try {
       const state = get();
-      const trimmedHistory = state.messages.slice(-12).map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-      }));
+      const trimmedHistory = state.messages
+        .slice(-13, -1)
+        .filter((message) => message.role !== "assistant" || message.content.length > 0)
+        .map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+        }));
 
       const response = await fetch("/api/agent", {
         method: "POST",
@@ -328,7 +359,7 @@ function applyEventToStore(
                   call.id === event.id
                     ? {
                         ...call,
-                        status: "succeeded",
+                        status: event.status ?? "succeeded",
                         finishedAt: Date.now(),
                         result: event.result,
                         summary: event.summary ?? call.summary,
@@ -393,7 +424,31 @@ function applyEventToStore(
       break;
 
     case "spoiler_findings":
-      set({ spoilerFindings: event.findings });
+      set((state) => ({
+        spoilerFindings: event.findings,
+        resultsAvailable: {
+          ...state.resultsAvailable,
+          spoilers: event.findings.length > 0,
+        },
+        focus:
+          event.findings.length > 0
+            ? ({ kind: "result", result: "spoilers" } as const)
+            : state.focus,
+      }));
+      break;
+
+    case "notice":
+      set((state) => ({
+        notices: [
+          ...state.notices,
+          {
+            id: `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            level: event.level,
+            message: event.message,
+            createdAt: Date.now(),
+          },
+        ],
+      }));
       break;
 
     case "audit":
